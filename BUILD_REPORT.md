@@ -734,6 +734,12 @@ missing {'total': 0, 'failed': 0, 'by_purpose': {}}
 Concurrent-run isolation is the same `_by_run` keying; not separately load-tested
 with two overlapping `POST /run` in this session (unexercised as a live overlap).
 
+### Task 5 — README Limitations (document only)
+
+README §7 now states Net32 specs vs Safco PDF-only specs, and that
+`alternatives` is an Alpine.js personalization widget on both sites. No
+scraper was built for either gap.
+
 ### Task 4 — reachability + disclosure (analysis only)
 
 **4a Unified extractor.** Live-crawl path in `extract_node`: tier-1

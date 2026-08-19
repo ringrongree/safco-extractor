@@ -187,7 +187,7 @@ One row per **variant** (`app/schemas.py::Product`):
 | `price_status` | enum | `visible` \| `gated` \| `not_found` |
 | `pack_size` | str \| null | regex-guessed from the variant name, e.g. `"12/box"` |
 | `availability` | enum | `In stock` / `Partially in stock` / `Backordered` / `Special order` / `Out of stock` / `Unknown` |
-| `description`, `specifications`, `image_urls`, `alternatives` | | `specifications`/`alternatives` are stubbed empty — see BUILD_REPORT |
+| `description`, `specifications`, `image_urls`, `alternatives` | | `specifications` filled on Net32 via gated LLM; empty on Safco. `alternatives` empty on both — see §7 |
 | `extraction_method` | enum | `structured` \| `selector` \| `llm` — the data-quality signal |
 | `scraped_at`, `source_hash` | | `source_hash` detects change on re-crawl |
 
@@ -205,9 +205,15 @@ combined) from the sample run — see `BUILD_REPORT.md` for the exact numbers.
   the session used for this build saw visible prices via JSON-LD, so that path
   is implemented but untested against a genuinely gated account.
 - **Spec detail inside linked brochure PDFs** is not followed or parsed.
-- **`specifications` and `alternatives`** are always empty in this draft — no
-  reliable structured or selector source was confirmed for them on Safco's
-  product pages in the time available. Explicit null/empty, not fabricated.
+- **`specifications`** — solved on Net32 (LLM fill gated by
+  `SiteAdapter.fill_missing_specifications_via_llm`; 12/12 rows, 7–8 fields
+  each). On Safco there is no clean HTML source: JSON-LD carries none, and
+  spec detail lives in linked brochure PDFs. Out of scope for the POC;
+  production path is a PDF-extraction step.
+- **`alternatives`** — the product-page "You may also like" is an Alpine.js
+  personalization widget (per-user recommendations), not a stable list of
+  true alternative SKUs. Out of scope on both sites; extracting it would
+  scrape a personalization surface, not catalog data.
 - **Escalation tiers beyond static/headless** (stealth, proxies, unlocker,
   CAPTCHA) are documented as a scale path (§9 below), not built.
 - **No distributed frontier.** SQLite + in-process structures only; a run's
@@ -297,3 +303,45 @@ Every node failure routes to `RECOVER` (`app/nodes/recover.py`), which decides:
   uses (Prometheus/Grafana, or simpler — a daily summary row per category in
   Postgres, alerted on via a scheduled query), rather than building a bespoke
   dashboard for the POC.
+
+## 10. Multi-site generalization — Net32 (`NET32_GENERALIZATION_KICKOFF.md`, Step 1)
+
+The agentic layer above was unproven on a second site until this pass: Safco's
+sample run made 0 LLM calls because structured data covered every row, so
+"it generalizes" was a claim, not a demonstration. Net32 (Next.js, no product
+JSON-LD reliable at build time, Cloudflare-protected) was added as a second
+`SiteAdapter` (`config/net32.py`) to force the LLM-bearing steps to actually
+fire. Full write-up — the prove-first gate that stopped mid-build when its own
+assumption broke, seven real bugs found by running the code against the live
+site, and the final numbers for both sites — is in `BUILD_REPORT.md` §9-14.
+Highlights:
+
+- **Site differences live entirely in `SiteAdapter` + a host→adapter registry**
+  (`config/registry.py`). `classify_heuristic` — the Safco/Magento-specific
+  function this project's own audit flagged as "not config" — is untouched;
+  it already returns "ambiguous" for any URL that doesn't match Safco's
+  patterns, which is what routes Net32 through LLM classify. No Net32
+  heuristics were added; `grep -ri net32 app/**/*.py` shows zero hits outside
+  comments/docstrings and the two config files.
+- **`extraction_method` on Net32 rows reads `llm`, not `structured`** — but
+  honestly: Net32's product-page JSON-LD actually covers the core fields
+  (name/sku/brand/price/availability) about as well as Safco's does. What it
+  never carries is the `specifications` key-value table (Manufacturer Code,
+  Packaging, Sterility, Color, Material) or the multi-vendor offer table —
+  that's what genuinely requires the LLM, and `extraction_method` reports the
+  *highest tier that contributed* to the row, matching the kickoff's own
+  design language.
+- **Headless rendering (with `crawl4ai`'s `enable_stealth=True`) is required
+  for every single Net32 fetch**, not an edge-case escalation. Static fetch
+  returns a Cloudflare JS-challenge 403 on every URL, every time — this is
+  the opposite of what both the original recon and the kickoff doc predicted
+  ("render-split unexercised on both sites"). Corrected in `BUILD_REPORT.md`
+  rather than left as a stale prediction.
+- **New limitations, specific to Net32** (in addition to §7 above, which is
+  Safco-scoped): vendor-offer fan-out beyond the lowest price is not modeled;
+  quantity-tier pricing is not captured; `alternatives` stays empty (Step-2
+  seam, not built — see kickoff §6 and `BUILD_REPORT.md` §13); pagination
+  beyond page 1 was not exercised in the committed sample (12-product cap hit
+  on page 1); only the `gloves` category was crawled, not full-site coverage.
+- Sample data: `data/samples/net32/net32_gloves.{csv,json}` (12 products, cap
+  from `config/net32.py`).
