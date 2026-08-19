@@ -198,6 +198,15 @@ Two real bugs were caught and fixed during this pass, not just cosmetic:
   would still hit this on Windows. Documented as a known issue (§7) rather
   than fully solved, since the underlying uvicorn/Windows limitation is real.
 
+## 6.5 Cold-clone check (BUILD_SPEC.md §16)
+
+`git clone` to a clean directory, fresh `venv`, `pip install -r
+requirements.txt`, `cp .env.example .env` + key, `python -c "import
+app.main"` and `uvicorn app.main:app` all verified working from that clean
+checkout (same machine — Playwright's browser cache is machine-global, not
+venv-local, so `crawl4ai-setup` wasn't re-run for this check; it would be
+needed on a genuinely different machine per the README instructions).
+
 ## 7. Known issues
 
 - **`--reload` on Windows still can't run a genuinely headless-dependent
