@@ -6,8 +6,11 @@ Never called from fetch, dedup, or storage.
 """
 import os
 import threading
+import time
 
 from openai import OpenAI
+
+from app.logging_setup import current_job_url, current_run_id, log_event
 
 MODEL_DEFAULT = "deepseek-v4-flash"
 MODEL_REASONING = "deepseek-v4-pro"
@@ -17,21 +20,36 @@ _lock = threading.Lock()
 
 
 class LLMCallCounter:
-    """Process-wide counter so the UI/BUILD_REPORT can report LLM usage."""
+    """Process-wide counter so the UI/BUILD_REPORT can report LLM usage.
+
+    `total` / `by_purpose` count successful responses only (keeps historical
+    sample numbers comparable). Failed attempts increment `failed` only —
+    they are never folded into `total`.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.total = 0
+        self.failed = 0
         self.by_purpose: dict[str, int] = {}
 
-    def record(self, purpose: str) -> None:
+    def record(self, purpose: str, run_id: str = "", ok: bool = True) -> None:
+        # run_id is accepted so the choke point can pass it; per-run buckets
+        # land in Task 2. Until then it is unused.
         with self._lock:
-            self.total += 1
-            self.by_purpose[purpose] = self.by_purpose.get(purpose, 0) + 1
+            if ok:
+                self.total += 1
+                self.by_purpose[purpose] = self.by_purpose.get(purpose, 0) + 1
+            else:
+                self.failed += 1
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"total": self.total, "by_purpose": dict(self.by_purpose)}
+            return {
+                "total": self.total,
+                "failed": self.failed,
+                "by_purpose": dict(self.by_purpose),
+            }
 
 
 call_counter = LLMCallCounter()
@@ -52,8 +70,57 @@ def _get_client() -> OpenAI:
 
 def llm(messages: list[dict], purpose: str, model: str = MODEL_DEFAULT, **kw) -> str:
     """Call DeepSeek. `purpose` is a free-text tag (e.g. "classify", "extract",
-    "selector_repair") used only for the call counter, never for routing."""
-    client = _get_client()
-    resp = client.chat.completions.create(model=model, messages=messages, **kw)
-    call_counter.record(purpose)
+    "selector_repair") used only for the call counter, never for routing.
+
+    Control flow is unchanged: a failed client/create still propagates to the
+    caller. The except path only records + logs, then re-raises the same
+    exception. Success-path logging is still defensively wrapped so a bug in
+    instrumentation can never affect this function's real return value.
+    """
+    run_id = current_run_id.get()
+    start = time.perf_counter()
+    try:
+        client = _get_client()
+        resp = client.chat.completions.create(model=model, messages=messages, **kw)
+    except Exception as exc:
+        latency_ms = (time.perf_counter() - start) * 1000
+        call_counter.record(purpose, run_id=run_id, ok=False)
+        try:
+            log_event(
+                "llm_call",
+                f"{purpose} model={model} FAILED {type(exc).__name__} latency={latency_ms:.0f}ms",
+                call_site=purpose,
+                model=model,
+                job_url=current_job_url.get(),
+                error=f"{type(exc).__name__}: {exc}",
+                latency_ms=round(latency_ms, 1),
+                ok=False,
+            )
+        except Exception:
+            pass
+        raise
+    latency_ms = (time.perf_counter() - start) * 1000
+    call_counter.record(purpose, run_id=run_id, ok=True)
+
+    try:
+        usage = resp.usage.model_dump() if getattr(resp, "usage", None) else None
+        response_text = resp.choices[0].message.content if resp.choices else None
+        prompt_text = messages[-1]["content"] if messages else ""
+        log_event(
+            "llm_call",
+            f"{purpose} model={model} latency={latency_ms:.0f}ms "
+            f"tokens={usage.get('total_tokens') if usage else 'null'}",
+            call_site=purpose,
+            model=model,
+            job_url=current_job_url.get(),
+            prompt_chars=len(prompt_text),
+            prompt_preview=prompt_text[:500],
+            response=response_text,
+            usage=usage,
+            latency_ms=round(latency_ms, 1),
+            ok=True,
+        )
+    except Exception:
+        pass  # instrumentation must never affect a real call's outcome
+
     return resp.choices[0].message.content or ""
