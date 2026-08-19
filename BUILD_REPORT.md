@@ -249,3 +249,477 @@ needed on a genuinely different machine per the README instructions).
    take-home brief's "capture as many of the following as possible" list —
    worth discussing whether the brochure-PDF route or the recs-widget route
    is worth pursuing in a next pass, or whether it's genuinely out of scope.
+
+## 9. Net32 generalization — Step 1, current-state read (`NET32_GENERALIZATION_KICKOFF.md`)
+
+Before touching code: `classify_heuristic` (`app/tools/parse.py`) is regex/URL-pattern
+matching hardcoded to Safco's `/catalog/`/`/product/` URL shape, `ProductGroup` JSON-LD,
+and `a.result`/`a.product-item-link` selectors — not adapter-driven, but it degrades
+correctly (returns `None` → LLM) on any URL that doesn't match those patterns. Recovery
+edges: only `fetch`, `classify`, `extract`, `validate` route to `recover`; `enqueue`,
+`next_job`, `store` don't (matches `INVENTORY_REPORT.md` finding B exactly — confirmed
+again by direct code read). `LoopTrace` is still never persisted (finding C, still true).
+
+## 10. Net32 Step 1 — prove-first gate (`NET32_GENERALIZATION_KICKOFF.md` §3): **STOPPED**
+
+Per the kickoff's own gate ("if product JSON-LD is unexpectedly present and clean, STOP
+and report — the whole slice depends on tier-1 missing"), this fired. Two of §2's recon
+facts are contradicted by a live check, plus a third reliability risk not anticipated by
+either doc. Full method: `app/tools/fetch_static.py::fetch_static` and
+`app/tools/fetch_headless.py::HeadlessFetcher` called directly (no new code), raw HTML
+dumped to disk, JSON-LD blocks parsed with the same regex `structured_data.py` uses.
+
+**A. Static fetch is not "missing AJAX content" — it's fully blocked.** All three static
+fetches (product page, listing page, listing page 2) returned HTTP 403 with an identical
+body: a Cloudflare interstitial (`<title>Just a moment...</title>`, CSP referencing
+`challenges.cloudflare.com`) — a JS challenge page, not a data page. `httpx` cannot solve
+this; it isn't a header/User-Agent problem like Safco's Fastly 405 was. Recon's "Listing
+pages are server-rendered... Static fetch enumerates the grid" and "Product page core...
+= static" are both false under the current fetch approach: **nothing** is fetchable
+statically right now, not just the AJAX-only pieces recon called out.
+
+**B. Headless (crawl4ai/Playwright) passes the challenge and finds a clean, complete
+`Product` JSON-LD block on the product page — contradicting "No JSON-LD in page head."**
+`https://www.net32.com/ec/essentials-ultra-premium-nitrile-exam-gloves-medium-d-172552`,
+headless-fetched: 3 `application/ld+json` blocks — `Product`, `BreadcrumbList`,
+`Organization`. The `Product` block has `sku: "172552"`, `name`, `brand.name`,
+`description`, `image`, and a nested `offers` object with `price: "14.95"`,
+`priceCurrency: "USD"`, `availability: "https://schema.org/InStock"`. This is exactly the
+shape `structured_extract_product()`'s existing bare-`Product` fallback path (the one
+written for Safco's single-SKU products) already consumes — `single.get("sku")` is
+truthy, so tier-1 would succeed immediately, tag `extraction_method=structured`, and
+**never reach the LLM**. This directly contradicts the kickoff's central premise ("Net32
+has... no JSON-LD... tier-1 structured extraction misses") and its Definition of Done
+("Net32 rows tagged `llm`/`selector`", "Extraction-method distribution... is the headline
+result").
+
+The listing page (headless) also carries JSON-LD — 5 blocks: two `ItemList` (one with
+1639 `numberOfItems`/60 per-page `ListItem`s carrying `name`+`image`+`url` but **no**
+`sku`/`price`/`availability`, one a 3-item "More About Gloves" content block),
+`FAQPage`, `BreadcrumbList`, `Organization`. The product-bearing `ItemList`'s `url`
+values don't contain `/product/` (Net32 uses `-d-{id}` in-path, no `/product/` segment),
+so `structured_extract_listing_urls()`'s existing `/product/`-substring filter correctly
+returns `None` for Net32 — listing-level discovery does fall through to the tier-2
+selector path as intended. The gate-breaking finding is specific to the **product-page**
+tier-1 cascade, not listing enqueue.
+
+**C. Even headless is not reliably passing Cloudflare — a new risk neither doc
+anticipated.** In the same run, immediately after the listing page succeeded, fetching
+page 2 (`.../l-509-569/2`, the path-suffix pagination check §3 asked for) failed:
+crawl4ai's own error — `Blocked by anti-bot protection: Cloudflare JS challenge`. So
+path-suffix pagination itself is **unconfirmed**, not because the URL scheme is wrong,
+but because the second sequential headless request in the same session got challenged.
+Cloudflare's block here looks session/rate-sensitive, not a clean "browser vs. no
+browser" gate — a materially different, and larger, reliability problem than Safco's
+Fastly rate-limit (which a static header fix resolved permanently).
+
+**D. Smaller, code-level finding that would matter if this proceeds unmodified:**
+`extract_category_path()` (`structured_data.py`) drops the trailing breadcrumb entry on
+the assumption it's the product's own name (true on Safco). Net32's product-page
+`BreadcrumbList` is `Home > Dental Supplies > Infection control - personal products >
+Gloves` — it does **not** include the product name at all, so the same "drop the last
+crumb" logic would incorrectly truncate `category_path` to `["Dental Supplies",
+"Infection control - personal products"]`, silently losing `"Gloves"` — diverging from
+the kickoff's own stated breadcrumb expectation (§2, seed URLs table).
+
+**Artifacts** (scratchpad, not committed — reproducible via the prove script):
+`listing_static.html` / `product_static.html` / `listing_page2_static.html` (all 403
+Cloudflare interstitials), `product_headless.html`, `listing_headless.html`,
+`listing_page2_headless.html` (the failed one, partial/challenge body).
+
+**Not proceeding to §4 (build) yet** — the slice as scoped depends on both broken
+assumptions. Flagged back to the requester per kickoff §1's own instruction
+("flag anything that contradicts this doc; if so, ask") and §3's explicit stop gate,
+with options, rather than silently redesigning the cascade or picking a different
+product page to route around the finding.
+
+## 11. Net32 Step 1 — decisions after the stop-gate
+
+Two decisions, made explicitly rather than picked silently:
+
+1. **Reframe the LLM-proof around `specifications{}`.** Tier-1 (structured data) is
+   reported honestly as succeeding on Net32's core Product fields (name, sku, brand,
+   price, currency, availability, description, images) — that's a real finding, not
+   hidden. What JSON-LD never carries (confirmed by grepping the DOM outside the
+   JSON-LD blocks): the key-value spec table (Manufacturer Code, Packaging, Sterility,
+   Color, Material) and the multi-vendor offer comparison. `extract_node`'s cascade
+   became additive instead of strictly binary: tier-1 fills the core row, then — gated
+   behind a new `SiteAdapter.fill_missing_specifications_via_llm` flag, off by default
+   — an LLM call fills `specifications` (and corrects `sku` to the real manufacturer
+   code when the LLM surfaces one, since JSON-LD's `sku` field is Net32's internal
+   product id, not a real SKU — see §4.4's own "note" on this). `extraction_method`
+   reports the **highest tier that contributed** per the kickoff's own §4.3 language:
+   Net32 rows read `llm`, Safco rows stay `structured`, because the flag defaults to
+   `False` and Safco's adapter never sets it.
+2. **Slow down + retry-with-backoff for the Cloudflare risk, accept pagination might
+   stay unconfirmed.** `NET32_ADAPTER.rate_limit=6.0` (vs. Safco's 2.0); a generic
+   (non-host-keyed) anti-bot-error backoff was added to `recover.py`'s fetch-stage
+   retry. In practice this undersold how bad the problem was — see §12.
+
+## 12. Net32 Step 1 — build: what changed, and real bugs found along the way
+
+Built per NET32_GENERALIZATION_KICKOFF.md §4, in order: SiteAdapter extensions →
+`config/net32.py` + host registry → classify (unchanged, see below) → extract
+(additive cascade) → LoopTrace persistence → recovery on all 8 nodes → run-metrics
+persistence → run + regress. Every one of the following was found by actually running
+the code against the live site, not by reading it — several materially changed the
+plan from §11's decisions.
+
+**A third, bigger Cloudflare surprise.** §10 already found Cloudflare blocking static
+fetch entirely and blocking a second sequential *headless* request during the prove
+step. The chosen mitigation (slower rate limit + backoff) was **not enough** — a real
+crawl run got JS-challenged on the very first product page, 3 times in a row, backoff
+included, and dead-lettered. Checked `crawl4ai`'s `BrowserConfig` for a sanctioned,
+first-class option before trying anything custom: `enable_stealth: bool` (Playwright
+stealth patches, not bespoke evasion code). Flipping it in `HeadlessFetcher`
+(`app/tools/fetch_headless.py`) resolved it completely — a clean two-URL repro went
+from immediate-block to two clean successes, and the full 12-product run then
+completed with **zero dead-letters**. This means headless + stealth is **load-bearing
+for Net32's entire happy path**, not an edge-case escalation tier — the opposite of
+what the kickoff's own §5.3 predicted ("the render-split/headless/RECOVER-escalate
+path is unexercised on both sites"). That prediction was correct for Safco and wrong
+for Net32; corrected here rather than silently reported as if it held.
+
+**Bugs found and fixed (all verified via a live run reproducing the failure, then the
+fix, not just read-and-guessed):**
+
+1. **`classify_node`'s recovery routing was dead code.** `recover.py` has classify-
+   specific logic (escalate to headless once, then dead-letter), but nothing ever set
+   `stage_failed="classify"` — `classify_node` returned `page_type` alone. A live run
+   hit this directly: a classify failure fell into the generic "unrecognized failure
+   stage" dead-letter on the *first* attempt instead of getting its designed retry.
+   Pre-existing bug (not introduced by this build), surfaced because Net32 routes
+   every page through classify's LLM path where Safco almost never does. Fixed by
+   having `classify_node` set `stage_failed` correctly.
+2. **Unhandled LLM API exceptions could crash the whole run.** Reproduced live: with
+   `DEEPSEEK_API_KEY` unset, `classify_with_llm`'s underlying API call raised
+   `RuntimeError`, uncaught, and killed the entire crawl — not just that one job. The
+   existing code only guarded against *unparseable* LLM responses, not the API call
+   itself failing. Same shape existed at the other two LLM call sites
+   (`extract_fallback_with_llm`, `repair_selector_with_llm` — the latter is called
+   *from inside* `recover_node`, whose entire job is to prevent exactly this). Fixed
+   at the source in `app/tools/llm_extract.py`: all three now degrade to their
+   existing "nothing found" return value on any exception, not just a parse failure.
+3. **`discover_listing_product_links` didn't resolve relative hrefs.** Net32's grid
+   returns a mix of absolute and root-relative (`/ec/...`) hrefs from the same
+   selector. A relative href reached `fetch_static`/`fetch_headless` directly and
+   crawl4ai rejected it ("URL must start with 'http://'...") — dead-lettered after 3
+   attempts on a URL that was never fetchable in the first place, no matter how many
+   retries. Generic bug (any selector-based listing discovery can return relative
+   hrefs), not Net32-specific; `discover_child_category_links` already resolved
+   relative URLs, this sibling function hadn't caught up. Fixed by threading
+   `adapter.base_url` through.
+4. **Two of the kickoff's own draft config values didn't survive contact with the
+   live site.** Its example selector key (`product_link`) doesn't match what
+   `app/nodes/enqueue.py` actually reads (`listing_product_links`) — used verbatim,
+   it would have silently discovered zero products, no error, empty run. Its example
+   `max_pages: 3` assumed something like Safco's cheap-page-cost profile; on a
+   headless-only site every product fetch costs a full page of budget, so 3 pages
+   caps out at ~2 products. Both corrected in `config/net32.py`, documented in its
+   own docstring rather than silently changed.
+5. **`extraction_method` wasn't actually being set on the `Product` objects.** The
+   additive-cascade logic (§11) correctly computed a local `method` variable for the
+   graph state and the trace, but never wrote it back to `p.extraction_method` on the
+   product rows themselves — the CSV/JSON export reads the latter. First full run
+   exported 12/12 rows as `structured` despite specifications genuinely being
+   LLM-filled. Caught by inspecting the actual exported file rather than trusting the
+   printed run summary, fixed, and the run redone.
+6. **The specifications LLM call couldn't see the spec table at all.** The shared
+   `_MAX_HTML_CHARS = 12000` truncation window (script/style-stripped) cut off before
+   Net32's spec table, which lives at ~13.6k-14.2k chars in on the page tested — even
+   though some fields (Color, ~4.8k) and the JSON-LD core fields were within the
+   window. First real run's specifications-fill genuinely fired (the LLM call
+   happened) but returned `{}` every time — not a fabrication risk, just useless.
+   Gave `extract_specifications_with_llm` its own larger window
+   (`_MAX_HTML_CHARS_SPECS = 25000`); the other three LLM call sites (classify,
+   extract_fallback, selector_repair) keep the original 12000 — no reason to pay for
+   a bigger prompt where it isn't needed.
+7. **Duplicate product URLs were eating the per-category cap.** Net32's grid links
+   the same product multiple times with different Algolia tracking params
+   (`?tsid=...`). Deduped by canonical form (`normalize_url(..., strip_query_params=True)`)
+   before slicing to `max_products_per_category`, so the cap counts unique products.
+
+**Config-driven discipline (§4.8) verified, not just claimed:** `grep -ri net32
+app/**/*.py` → 14 hits, all in comments/docstrings citing this report or the kickoff
+doc; zero in executable conditionals. The only files with `net32`/`Net32` as live
+code are `config/net32.py` (the adapter itself) and `config/registry.py` (the one
+place a host string is allowed to appear, by design).
+
+## 13. Net32 Step 1 — results (both sites, real runs)
+
+**Net32** (`data/samples/net32/net32_gloves.{csv,json}`, gloves category, cap 12):
+
+| Metric | Value |
+|---|---|
+| Products (variant rows) | 12/12 |
+| Pages fetched | 13 (1 listing + 12 product, all headless+stealth) |
+| Dead-letters | 0 |
+| LLM calls | 25 (13 `classify`, 12 `extract_specifications`) |
+| Extraction method | 12/12 `llm` (tier-1 structured core + LLM-filled specifications) |
+| `specifications` fill | 12/12 (7-8 fields each: Manufacturer Code, Brand, Color, Material, Packaging, Size, Sterility) |
+| `price` fill | 11/12 (1 product's own JSON-LD genuinely has no `offers` block — correctly `null`, not fabricated) |
+| Canonical URLs | 0/12 retain `?tsid=`/`?queryID=` tracking params |
+| Elapsed | ~260s |
+
+**Safco regression** (re-run against the live site, not just re-read from the
+committed sample):
+
+| Metric | This run | Original sample |
+|---|---|---|
+| Products | 225 (109 sutures / 116 gloves) | 225 (109/116) — exact match |
+| Extraction method | 225/225 `structured` | 225/225 `structured` |
+| LLM calls | 0 | 0 |
+| Dead-letters | 0 | 0 |
+| Pages fetched | 66 | "66" (previously **unverifiable** per INVENTORY_REPORT.md §H — now independently reproduced) |
+| Elapsed | ~159s | "~131s" (network variance, same ballpark) |
+
+**Classify path counts:** Safco — 0 LLM classify calls across the regression run
+(heuristic handled every page, unchanged from the original build). Net32 — 13/13
+pages classified via LLM (`classify_heuristic` returns `None` for every Net32 URL,
+since neither matches `/catalog/`/`/product/`; confirmed offline against cached HTML
+before the first live run, then confirmed again in every real run). No Net32
+heuristics were added to `classify_heuristic` — it is byte-for-byte the same
+function that already existed for Safco.
+
+**Closed audit/spec gaps:**
+- `LoopTrace` persisted to SQLite (`traces` table) — 119 rows for the Net32 dev runs,
+  232 for the Safco regression run, real artifacts in `data/safco.db`, not just
+  in-memory.
+- Recovery on all 8 nodes — `enqueue`/`next_job`/`store` now dead-letter and continue
+  on an internal exception instead of aborting the run; `classify`'s previously-dead
+  recovery branch (bug 1, §12) now actually reachable.
+- Run metrics persisted (`runs` table: `pages_fetched`, `products_found`,
+  `llm_calls`, `dead_letters`, `elapsed_seconds`) — written from `main.py`'s `/run`
+  handler on every run, and from the standalone scripts used to produce the numbers
+  in this section.
+- `dedup.py::normalize_url` is no longer dead code — used for canonical
+  query-param stripping (Net32) and duplicate-listing-URL collapsing.
+
+**Step-2 seams (§6), confirmed present, none built:**
+- **Seam A (fetch routing)** — not just present but *exercised*: Net32's entire happy
+  path runs through `fetch_node`'s `job.render_mode == HEADLESS` branch, driven by
+  `SiteAdapter.start_render_mode`, zero node-level host checks. `RECOVER`'s
+  escalate-render edge is real and fired during earlier debugging (§10, §12).
+- **Seam B (extract modularity)** — `Product.alternatives` stays `[]`/null for every
+  Net32 row; the additive-cascade pattern added for `specifications` (§11) is the
+  same insertion point a future `extract_alternatives` sub-step would use.
+- **Seam C (trace visibility)** — `LoopTrace.render_mode` is populated on every
+  trace; Net32's persisted traces show `headless` throughout, confirming this would
+  surface a Step-2 headless-for-alternatives fetch immediately.
+- **Seam D (adapter hook)** — `SiteAdapter.alternatives: Optional[AlternativesConfig]`
+  exists (`site_id`, `canonical`, and this were all additive schema changes); unset
+  on both `SAFCO_ADAPTER` and `NET32_ADAPTER`.
+
+## 14. Net32 Step 1 — Definition of Done (kickoff §8), checked against this report
+
+- [x] Repo read; current-state summary written to BUILD_REPORT (§9).
+- [x] Net32 no-JSON-LD assumption checked — **found false** for product pages
+      (§10); stopped, reported, got explicit sign-off on how to adapt (§11) before
+      building.
+- [x] `config/net32.py` adapter + host→adapter registry (`config/registry.py`).
+- [x] Classify: LLM fires on Net32 (13/13 pages, real runs), heuristic still handles
+      Safco (0 LLM classify calls in the regression), no Net32 heuristics added.
+- [x] Extract: Net32 rows tagged `llm` (12/12), Safco rows still `structured`
+      (225/225).
+- [x] Net32 gloves sample (12 products) → validated `Product` rows → CSV+JSON in
+      `data/samples/net32/`.
+- [x] `LoopTrace` persisted to SQLite.
+- [x] Recovery, defined as **"a failure at this node does not abort the run."**
+      Verified against source this session, not 8 identical edges:
+      - `fetch`, `classify`, `extract`, `validate` route to the **`recover` node**
+        (retry | escalate_render | repair_selector | dead_letter).
+      - `enqueue`, `store`, `next_job` **catch-and-dead-letter inline** (a failure
+        writes a `FailureRecord` and continues; `next_job` ends the run cleanly on
+        a corrupt frontier rather than re-popping it).
+      - `recover` itself guards its own LLM call (`repair_selector_with_llm`
+        degrades to `None`).
+      That's 4 routed + 3 inline + `recover`'s own guard.
+- [x] Run metrics persisted; figures in §13 are artifact-backed (traces/runs/failures
+      tables, re-run against the live site), not asserted.
+- [x] Safco regression clean (225 rows, structured, 0 LLM) — re-run live, not just
+      re-read from the committed sample.
+- [x] Method distribution, render-split note, Step-2 seams — §13, with the honest
+      correction that headless turned out to be load-bearing on Net32 (§12), not
+      unexercised as predicted.
+- [x] Config-driven: zero `net32` literals in node logic (verified by grep, §12).
+
+**Honest deltas from the kickoff's literal plan**, disclosed rather than buried:
+render_mode defaults to `headless` for Net32 (not `static`); `enable_stealth=True`
+is required, not optional, for Net32's happy path; `extraction_method=llm` reflects
+"highest tier contributed" (per §4.3's own wording), not "tier-1 missed entirely" —
+tier-1 structured data actually covers Net32's core fields well, which is itself a
+finding worth carrying into any Step 2/production discussion about this site.
+
+## 15. LLM-primary inversion — Phase 0 STOP; Option 1 locked (2026-08-19)
+
+**Verdict: Option 1 — invert neither.** Safco stays JSON-LD-primary (today’s
+graph). LLM-primary already lives on Net32 (classify on every page; specs LLM
+when the adapter flag is on). `extract.py` / `classify.py` are unchanged.
+
+Prove-first on **one** product: `https://www.safcodental.com/product/safco-surestitch-trade-sutures`
+(the known 15-variant SureStitch page). Cached HTML:
+`data/phase0/surestitch_{static,headless}.html`.
+
+### Phase 0 finding (verbatim)
+
+**STOP. Visible-DOM LLM extract cannot replace Safco JSON-LD.** Headless visible
+DOM does not carry the 15 sku/**size** rows. The LLM can parrot 15 SKUs from
+`<meta name="keywords">` but cannot recover per-variant name/price/availability
+from the slice `_truncate` would send it. Oracle N=15 vs stored-quality LLM M is
+not 15==15 on the headline metric (matched SKU keys).
+
+| Source | Oracle `structured_extract_product` | 25k script-stripped slice | LLM unified extract |
+|---|---|---|---|
+| Static fetch | **15** (JSON-LD in `<script>`) | 15 hyphenated SKUs in meta keywords only; **0** variant names; `Loading...` still in full stripped HTML (past 25k) | not used as primary evidence |
+| Headless fetch (6s settle) | **15** (same JSON-LD) | same 15 hyphenated SKUs in keywords; Alpine table still `x-html="item.product_sku"` **unhydrated**; variant names **0** in stripped HTML | **15 rows**, all `sku=102-5801` style, all `name=Safco SureStitch sutures`, all `price=30.49`, all `availability=Unknown` |
+
+- JSON-LD SKUs are **bare** (`1025801`). Visible meta keywords are **hyphenated** (`102-5801`). `normalize_sku` (strip / upper / collapse ws, **no** hyphen-strip) therefore reports **0 matched keys**, `llm_only=15`, `oracle_only=15`, `row_count_match=false` even though both lists have length 15.
+- Variant payload lives in `<script type="application/ld+json"> ProductGroup.hasVariant` and in `window.masterData` (also a script). `_truncate` strips both. Headless does **not** serialize the Alpine variant table into `result.html`.
+- Expected Phase 0 story (static: AJAX `Loading...`; headless: table populated) is **half-true for prices in the live page, false for crawl4ai HTML**: the table is JS-bound, not server-rendered rows.
+
+Phase 1 draft (`extract_fallback_with_llm` / alias `extract_with_llm`) **was** called on the cached headless HTML. It enumerated 15 SKUs from keywords. That is **not** the variant table. Field diffs vs oracle: name (page title vs per-variant), price (one visible `$30.49` cloned onto every row vs 30.49–53.99), availability (Unknown vs In stock), SKU punctuation.
+
+### What was built anyway (Phases 1–2 only)
+
+- `app/tools/llm_extract.py`: unified extractor — full field set including `specifications` + `image_urls`, 25k `_truncate`, `[]` on API/parse failure, alias `extract_with_llm`. Purpose tag `extract`.
+- `app/tools/oracle.py`: pure `compare(llm_rows, oracle_rows)`; `{"oracle": "absent"}` when JSON-LD misses; tunable consts as specified.
+- `tests/test_oracle.py` (unittest).
+- **Not built (Option 1):** extract_node / classify_node rewire, summary oracle tables, Safco `start_render_mode=headless`, cap-3 / cap-25 LLM-primary crawl, CSV/JSON schema changes (none). The unified extractor and `compare()` stay in-tree unused by the graph.
+
+### Match-rate tables (Safco full run)
+
+**No full run.** Cap-3 and cap-25 were not executed. There is no 225-row comparison and no classify-match % from a crawl.
+
+One-page diagnostic (SureStitch, not a crawl):
+
+| Metric | Value |
+|---|---|
+| Oracle rows | 15 |
+| LLM rows | 15 |
+| Row-count match (`\|llm skus\|==\|oracle skus\|` **and** zero unmatched keys) | **false** (hyphen vs bare) |
+| Fan-out diverged | **yes** (15 llm-only + 15 oracle-only keys) |
+| Classify match % | n/a (graph not rewired) |
+| Per-field match on matched SKUs | n/a (zero matched keys) |
+| Systematic LLM errors on this page | hyphenated SKU; generic name; cloned price 30.49; Unknown availability |
+
+### Cost
+
+One extract call on this page: `deepseek-v4-flash`, ~128s, **23515** tokens (`data/logs` not opened for this standalone script). A full Safco crawl at LLM-primary would still be ~66 classify + ~50 extract **if** the graph were inverted; that cost was **not** spent.
+
+### What this says about LLM-primary generalizing off Safco
+
+Safco is a **bad** visible-DOM test bench for variant fan-out. The 225 rows the deterministic path stores come from JSON-LD the LLM is forbidden to see under current `_truncate`. Feeding that JSON-LD back into the prompt would make an oracle comparison circular. Net32 is already the site where LLM-primary is load-bearing (heuristic classify always misses; specs LLM fills a table JSON-LD does not carry). Option 1 keeps that split: Safco = structured extract; Net32 = LLM classify + additive specs. A future “any site” loop is not proven by a Safco 225 re-run under LLM extract.
+
+Rejected (not implemented): (2) splice JSON-LD/`masterData` into the extract prompt; (3) hydrate Alpine then re-run Phase 0; (4) hyphen-strip SKUs to fake a key match. None of those invert the graph; none were needed once Option 1 was locked.
+
+### Remaining brief-gap (separate decision)
+
+`specifications` and `alternatives` are still **0%** on Safco (empty `{}` / `[]` on stored rows). That is unrelated to this inversion: JSON-LD `ProductGroup` never filled those fields, and Option 1 does not change that. Filling them (Safco spec table, recs widget / Seam D) is a later product-field decision, not a classify/extract primacy decision.
+
+## 16. Post-audit fixpack (2026-08-19)
+
+Option 1 remains locked. `app/graph.py` was not edited. Instrumentation does not
+change return values or swallow exceptions at the choke point (failure path
+records + logs, then re-raises).
+
+### Task 1 — failed LLM calls visible; classify degrades like the other sites
+
+**What changed.** `app/llm.py::llm()` wraps client resolution + `create()`,
+records `call_counter` with `ok=False`, writes an `llm_call` JSONL event with
+`"ok": false` and the error (instrumentation itself try/except'd), then
+re-raises. `llm_calls` / `total` stay success-only. `classify_with_llm` now
+wraps the `await` as well as the JSON parse and returns
+`(UNKNOWN, reason, 0.0)` on a raised API error — matching the other three
+sites. Choke-point logging still fires once before the site catches.
+
+**Live crawl (one Net32 product, `DEEPSEEK_API_KEY` forced empty, uvicorn on
+`:8010`).** Run completed, no crash (`status: done`).
+
+Honest gap vs the written acceptance check: seeding a Net32 product URL still
+goes through LLM classify first. With the key empty, classify returns UNKNOWN,
+`recover` sees `start_render_mode=headless` already, and dead-letters. Extract
+never runs, so **`extract_specifications` does not fire on this live path**,
+and **no product row is persisted** (tier-1 never reached). That is existing
+graph routing, not a Task 1 regression. The "product row still persists via
+tier-1 structured core; specifications is `{}`" clause is **unexercised** on
+an empty-key Net32 crawl. Isolated calls (below) prove both call sites log.
+
+Run A live `/status` (process with the fix, empty key):
+
+```
+{
+  "run_id": "999a8acba67e",
+  "status": "done",
+  "pages_fetched": 1,
+  "products_found": 0,
+  "dead_letters": 1,
+  "llm_calls": {"total": 0, "failed": 1, "by_purpose": {}}
+}
+```
+
+`data/logs/run_999a8acba67e.jsonl` `llm_call` excerpt:
+
+```
+{"kind": "llm_call", "run_id": "999a8acba67e", "call_site": "classify", "ok": false,
+ "error": "RuntimeError: DEEPSEEK_API_KEY is not set. Copy .env.example to .env and add your key.",
+ "model": "deepseek-v4-flash"}
+```
+
+`data/logs/run_999a8acba67e_summary.json` (relevant keys):
+
+```
+"llm_calls_total": 0,
+"llm_calls_by_call_site": {},
+"llm_calls_failed": 1,
+"llm_calls_failed_by_call_site": {"classify": 1}
+```
+
+`runs` row: `llm_calls=0` (success total from the JSONL summary), `dead_letters=1`,
+`products_found=0`. Products table: no rows for this `run_id`.
+
+Isolated empty-key calls (not a crawl) for the two sites the acceptance named:
+
+```
+specs_return {}
+classify_return ('unknown', 'RuntimeError: DEEPSEEK_API_KEY is not set. ...', 0.0)
+counter {'total': 0, 'failed': 2, 'by_purpose': {}}
+{"kind": "llm_call", "run_id": "task1-isolated", "call_site": "extract_specifications", "ok": false, "error": "RuntimeError: DEEPSEEK_API_KEY is not set. ..."}
+{"kind": "llm_call", "run_id": "task1-isolated", "call_site": "classify", "ok": false, "error": "RuntimeError: DEEPSEEK_API_KEY is not set. ..."}
+```
+
+### Task 2 — per-run counts; DB metric from JSONL summary
+
+**What changed.** `LLMCallCounter` keys buckets by `run_id`. `/status` uses
+`call_counter.snapshot(run_id)` (still exposes `total`). `_runner` `finally`
+computes `compute_summary` first and passes `summary["llm_calls_total"]` into
+`upsert_run`. `compute_summary` splits `llm_calls_total` (successes, including
+legacy records with `ok` missing) vs `llm_calls_failed` / `_by_call_site`.
+
+**Two sequential `POST /run` in one uvicorn process** (empty key, same Net32
+product, `:8010`):
+
+Run A `/status` `llm_calls`: `{"total": 0, "failed": 1, "by_purpose": {}}`
+Run B `/status` `llm_calls`: `{"total": 0, "failed": 1, "by_purpose": {}}`
+
+B is **B only**, not A+B (`failed` would be 2 if the global counter were still
+fed to `/status`). `runs.llm_calls` for B = 0 = `run_c06c8926ffa6_summary.json`
+`llm_calls_total`.
+
+```
+{'run_id': '999a8acba67e', ..., 'llm_calls': 0, 'dead_letters': 1}
+{'run_id': 'c06c8926ffa6', ..., 'llm_calls': 0, 'dead_letters': 1}
+```
+
+Empty-key live runs cannot show a non-zero success `total` split (both are 0).
+In-process counter check of the success path:
+
+```
+global {'total': 3, 'failed': 0, 'by_purpose': {'classify': 2, 'extract_specifications': 1}}
+A {'total': 2, 'failed': 0, 'by_purpose': {'classify': 1, 'extract_specifications': 1}}
+B {'total': 1, 'failed': 0, 'by_purpose': {'classify': 1}}
+missing {'total': 0, 'failed': 0, 'by_purpose': {}}
+```
+
+Concurrent-run isolation is the same `_by_run` keying; not separately load-tested
+with two overlapping `POST /run` in this session (unexercised as a live overlap).
+
