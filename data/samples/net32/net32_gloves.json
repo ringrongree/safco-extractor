@@ -1,0 +1,415 @@
+[
+  {
+    "product_id": "a2c51345b2264d828937583f8c35e22b",
+    "variant_id": "180003",
+    "name": "JMU Nitrile Powder-Free Exam Gloves, Non-Sterile, Small, Violet Blue, 200/Box",
+    "brand": "JMU",
+    "sku": "25301019",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/jmu-nitrile-powderfree-exam-gloves-nonsterile-small-d-180003",
+    "crawl_url": "https://www.net32.com/ec/jmu-nitrile-powderfree-exam-gloves-nonsterile-small-d-180003",
+    "price": null,
+    "currency": null,
+    "price_status": "not_found",
+    "pack_size": "200/Box",
+    "availability": "Unknown",
+    "description": "JMU Nitrile Powder-Free Exam Gloves, Non-Sterile, Small, Violet Blue, 200/Box. Textured fingertips. Made in Thailand.",
+    "specifications": {
+      "Manufacturer Code": "25301019",
+      "Brand": "JMU",
+      "Color": "Violet Blue",
+      "Material": "Nitrile",
+      "Packaging": "Box of 200 gloves",
+      "Size": "Small",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/jmu-dental/jmu/media/jmu-25301019-2.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:00:34.084161+00:00",
+    "source_hash": "a846f84f7053b5a5"
+  },
+  {
+    "product_id": "745043e771f54032a043a8be7d1f6279",
+    "variant_id": "184833",
+    "name": "Smile Nitrile Exam Gloves, Powder Free, Small, Blue, 300/Box, Case of 10",
+    "brand": "Smile",
+    "sku": "B8310-CS",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/smile-nitrile-exam-gloves-powder-free-small-d-184833",
+    "crawl_url": "https://www.net32.com/ec/smile-nitrile-exam-gloves-powder-free-small-d-184833?tsid=20871",
+    "price": 149.9,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "300/Box",
+    "availability": "In stock",
+    "description": "Smile Nitrile Exam Gloves, Powder Free, Small, Blue, 300/Box, Case of 10. Finger-textured, latex-free, and unscented gloves.",
+    "specifications": {
+      "Manufacturer Code": "B8310-CS",
+      "Brand": "Smile",
+      "Color": "Blue",
+      "Material": "Nitrile",
+      "Packaging": "Case of 3000 Gloves",
+      "Size": "Small",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/top-quality-manufacturing/smile/media/top-quality-manufacturing-smile-gloves-generic-b8300-thru-b8350.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:00:51.971516+00:00",
+    "source_hash": "4ad2c0288b0393e4"
+  },
+  {
+    "product_id": "3775f3ac16534c3fb4403998dc014dfe",
+    "variant_id": "184834",
+    "name": "Smile Nitrile Exam Gloves, Powder Free, Medium, Blue, 300/Box, Case of 10",
+    "brand": "Smile",
+    "sku": "B8330-CS",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/smile-nitrile-exam-gloves-powder-free-medium-d-184834",
+    "crawl_url": "https://www.net32.com/ec/smile-nitrile-exam-gloves-powder-free-medium-d-184834?tsid=20871",
+    "price": 149.9,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "300/Box",
+    "availability": "In stock",
+    "description": "Smile Nitrile Exam Gloves, Powder Free, Medium, Blue, 300/Box, Case of 10. Finger-textured, latex-free, and unscented gloves.",
+    "specifications": {
+      "Description": "Smile Nitrile Exam Gloves, Powder Free, Medium, Blue, 300/Box, Case of 10. Finger-textured, latex-free, and unscented gloves.",
+      "Manufacturer Code": "B8330-CS",
+      "Brand": "Smile",
+      "Color": "Blue",
+      "Material": "Nitrile",
+      "Packaging": "Case of 3000 Gloves",
+      "Size": "Medium",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/top-quality-manufacturing/smile/media/top-quality-manufacturing-smile-gloves-generic-b8300-thru-b8350.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:01:09.756726+00:00",
+    "source_hash": "1d228c038b1b5714"
+  },
+  {
+    "product_id": "668b3e857cc543528b6307322116eba4",
+    "variant_id": "113866",
+    "name": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Small, Blue, 100/Bx",
+    "brand": "House Brand",
+    "sku": "3116",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/house-brand-premium-nitrile-exam-gloves-small-d-113866",
+    "crawl_url": "https://www.net32.com/ec/house-brand-powderfree-nitrile-gloves-nonsterile-small-d-113866?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 3.79,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "100/Bx",
+    "availability": "In stock",
+    "description": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Small, Blue, 100/Bx.",
+    "specifications": {
+      "Manufacturer Code": "3116",
+      "Brand": "House Brand",
+      "Color": "Blue",
+      "Material": "Nitrile",
+      "Packaging": "Box of 100 gloves",
+      "Size": "Small",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/house-brand/house-brand-premium/media/nitrile-exam-gloves-blue.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:01:25.078679+00:00",
+    "source_hash": "8846daaefe60e290"
+  },
+  {
+    "product_id": "8bb519f7ce3a443c9e5e75e63ed0c8f4",
+    "variant_id": "113867",
+    "name": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Medium, Blue, 100/Bx",
+    "brand": "House Brand",
+    "sku": "3117",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/house-brand-premium-nitrile-exam-gloves-medium-d-113867",
+    "crawl_url": "https://www.net32.com/ec/house-brand-powderfree-nitrile-gloves-nonsterile-medium-d-113867?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 3.4,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "100/Bx",
+    "availability": "In stock",
+    "description": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Medium, Blue, 100/Bx.",
+    "specifications": {
+      "Manufacturer Code": "3117",
+      "Brand": "House Brand",
+      "Color": "Blue",
+      "Material": "Nitrile",
+      "Packaging": "Box of 100 gloves",
+      "Size": "Medium",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/house-brand/house-brand-premium/media/nitrile-exam-gloves-blue.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:01:42.971010+00:00",
+    "source_hash": "d3ec426c0891ed9e"
+  },
+  {
+    "product_id": "80fb7aea9591446793c314c4362572cd",
+    "variant_id": "155403",
+    "name": "House Brand Powder Free Nitrile Gloves, Medium, 300/Box",
+    "brand": "House Brand",
+    "sku": "HB-NIT300M",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/house-brand-nitrile-exam-gloves-medium-300-d-155403",
+    "crawl_url": "https://www.net32.com/ec/house-brand-powder-free-nitrile-gloves-medium-d-155403?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 12.99,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "300/Box",
+    "availability": "In stock",
+    "description": "House Brand Powder Free Nitrile Gloves, Medium, 300/Box. Color may vary.",
+    "specifications": {
+      "Description": "House Brand Powder Free Nitrile Gloves, Medium, 300/Box. Color may vary.",
+      "Manufacturer Code": "HB-NIT300M",
+      "Brand": "House Brand",
+      "Color": "Not specified",
+      "Material": "Nitrile",
+      "Packaging": "Box of 300 gloves",
+      "Size": "Medium",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/house-brand/house-brand/media/Nitrile-gloves-HB-NIT300L.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:01:58.287858+00:00",
+    "source_hash": "4ab41d783a264cb9"
+  },
+  {
+    "product_id": "e522cf0b3a6249f482314581164ab492",
+    "variant_id": "196991",
+    "name": "Glove Club Nytrile X200 Powder Free Exam Gloves, Medium, Blue, 200/Pk, Case of 10",
+    "brand": "Glove Club",
+    "sku": "GC1125660-CS",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/nytrile-x200-nitrile-powder-free-exam-gloves-d-196991",
+    "crawl_url": "https://www.net32.com/ec/glove-club-nytrile-x200-powder-free-exam-d-196991?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 119.9,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "200/Pk",
+    "availability": "In stock",
+    "description": "Glove Club Nytrile X200 Powder Free Exam Gloves, Medium, Blue, 200/Pk, Case of 10. Non-sterile, ambidextrous, and natural rubber latex-free. Features a 3 mil palm thickness, textured fingertips for enhanced grip, and a beaded cuff for secure fit. Tested for resistance to permeation by chemotherapy drugs and fentanyl citrate in accordance with ASTM D6978.",
+    "specifications": {
+      "Manufacturer Code": "GC1125660-CS",
+      "Brand": "Glove Club",
+      "Color": "Blue",
+      "Material": "Nitrile",
+      "Packaging": "Case of 2000 gloves",
+      "Size": "Medium",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/top-quality-manufacturing/nytrile/media/top-quality-manufacturing-nytrile-gloves-gc1125660.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:02:14.299347+00:00",
+    "source_hash": "6ea8935ee4f71abe"
+  },
+  {
+    "product_id": "386402f0633e48d7834708bde7896327",
+    "variant_id": "196986",
+    "name": "Glove Club Nytrile X200 Powder Free Exam Gloves, Small, Blue, 200/Pk",
+    "brand": "Glove Club",
+    "sku": "GC1125659",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/nytrile-x200-nitrile-powder-free-exam-gloves-d-196986",
+    "crawl_url": "https://www.net32.com/ec/glove-club-nytrile-x200-powder-free-exam-d-196986?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 11.99,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "200/Pk",
+    "availability": "In stock",
+    "description": "Glove Club Nytrile X200 Powder Free Exam Gloves, Small, Blue, 200/Pk. Non-sterile, ambidextrous, and natural rubber latex-free. Features a 3 mil palm thickness, textured fingertips for enhanced grip, and a beaded cuff for secure fit. Tested for resistance to permeation by chemotherapy drugs and fentanyl citrate in accordance with ASTM D6978.",
+    "specifications": {
+      "Manufacturer Code": "GC1125659",
+      "Brand": "Glove Club",
+      "Color": "Blue",
+      "Material": "Nitrile",
+      "Packaging": "Box of 200 gloves",
+      "Size": "Small",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/top-quality-manufacturing/nytrile/media/top-quality-manufacturing-nytrile-gloves-gc1125659.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:02:40.084980+00:00",
+    "source_hash": "9de4ddd903d4609c"
+  },
+  {
+    "product_id": "000e9ec6319c4ab9a3e5028e11ce0bca",
+    "variant_id": "155402",
+    "name": "House Brand Powder Free Nitrile Gloves, Small, 300/Box",
+    "brand": "House Brand",
+    "sku": "HB-NIT300S",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/house-brand-nitrile-exam-gloves-small-300-d-155402",
+    "crawl_url": "https://www.net32.com/ec/house-brand-powder-free-nitrile-gloves-small-d-155402?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 7.98,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "300/Box",
+    "availability": "In stock",
+    "description": "House Brand Powder Free Nitrile Gloves, Small, 300/Box. Color may vary.",
+    "specifications": {
+      "Description": "House Brand Powder Free Nitrile Gloves, Small, 300/Box. Color may vary.",
+      "Manufacturer Code": "HB-NIT300S",
+      "Brand": "House Brand",
+      "Color": "Not specified",
+      "Material": "Nitrile",
+      "Packaging": "Box of 300 gloves",
+      "Size": "Small",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/house-brand/house-brand/media/Nitrile-gloves-HB-NIT300L.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:02:56.696829+00:00",
+    "source_hash": "7a5d966feea6f7c7"
+  },
+  {
+    "product_id": "58e4eb1e1bb34dbfa14abf5f76547c69",
+    "variant_id": "126481",
+    "name": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Small, Blue, 200/Box",
+    "brand": "House Brand",
+    "sku": "19-004-76HB",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/house-brand-premium-nitrile-exam-gloves-small-d-126481",
+    "crawl_url": "https://www.net32.com/ec/house-brand-powderfree-nitrile-gloves-nonsterile-small-d-126481?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 7.42,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "200/Box",
+    "availability": "In stock",
+    "description": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Small, Blue, 200/Box.",
+    "specifications": {
+      "Description": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Small, Blue, 200/Box.",
+      "Manufacturer Code": "19-004-76HB",
+      "Brand": "House Brand",
+      "Color": "Blue",
+      "Material": "Nitrile",
+      "Packaging": "Box of 200 gloves",
+      "Size": "Small",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/house-brand/house-brand-premium/media/blue-soft-nitrile-gloves.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:03:17.323407+00:00",
+    "source_hash": "a62a0479b13262e1"
+  },
+  {
+    "product_id": "2eac68ce100a46c5b224572834ea1389",
+    "variant_id": "126482",
+    "name": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Medium, Blue, 200/Box",
+    "brand": "House Brand",
+    "sku": "19-004-77HB",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/house-brand-premium-nitrile-exam-gloves-medium-d-126482",
+    "crawl_url": "https://www.net32.com/ec/house-brand-powderfree-nitrile-gloves-nonsterile-medium-d-126482?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 9.99,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "200/Box",
+    "availability": "In stock",
+    "description": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Medium, Blue, 200/Box.",
+    "specifications": {
+      "Description": "House Brand Powder-Free Nitrile Gloves, Non-Sterile, Medium, Blue, 200/Box.",
+      "Manufacturer Code": "19-004-77HB",
+      "Brand": "House Brand",
+      "Color": "Blue",
+      "Material": "Nitrile",
+      "Packaging": "Box of 200 gloves",
+      "Size": "Medium",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/house-brand/house-brand-premium/media/blue-soft-nitrile-gloves.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:03:34.460655+00:00",
+    "source_hash": "cb26f27d728bc6b1"
+  },
+  {
+    "product_id": "6bafb902561f487dab15553a48403749",
+    "variant_id": "104375",
+    "name": "Halyard Lavender Nitrile Exam Gloves: SMALL 250/Bx.",
+    "brand": "Lavender",
+    "sku": "52817",
+    "category_path": [
+      "gloves-infection-control-personal-products-l-509-569"
+    ],
+    "url": "https://www.net32.com/ec/lavender-nitrile-exam-gloves-small-250-powderfree-d-104375",
+    "crawl_url": "https://www.net32.com/ec/lavender-halyard-nitrile-95-exam-gloves-small-d-104375?queryID=9ea2eec09ab3b5c060368ddb5c027f33",
+    "price": 16.96,
+    "currency": "USD",
+    "price_status": "visible",
+    "pack_size": "250/Bx",
+    "availability": "In stock",
+    "description": "Halyard Lavender Nitrile 9.5\" Exam Gloves: SMALL, 250/Bx. Non-sterile, ambidextrous gloves with textured fingertips, beaded 9.5 inch cuffs. Powder-free and natural rubber latex-free. Thickness: fingertips 2.8 mil (0.07mm), palm 2mil (0.05mm). Meets or Exceeds ASTM D5151 and ASTM D6319 Test Standards.",
+    "specifications": {
+      "Manufacturer Code": "52817",
+      "Brand": "Lavender",
+      "Color": "Lavender",
+      "Material": "Nitrile",
+      "Packaging": "Box of 250 gloves",
+      "Size": "Small",
+      "Sterility": "Non-sterile"
+    },
+    "image_urls": [
+      "https://www.net32.com/media/shared/common/mp/halyard-health/lavender/media/mfr-lavender-gloves-52817-3rd-fix.jpg"
+    ],
+    "alternatives": [],
+    "extraction_method": "llm",
+    "scraped_at": "2026-08-19T17:03:50.077291+00:00",
+    "source_hash": "65a1c7a93cdbda5e"
+  }
+]

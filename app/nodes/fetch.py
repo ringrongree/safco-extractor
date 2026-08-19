@@ -1,6 +1,7 @@
 """FETCH node — observe. Tier-routed: static vs headless. BUILD_SPEC.md §8."""
 from __future__ import annotations
 
+from app.logging_setup import log_node_entry
 from app.memory import RunMemory
 from app.schemas import RenderMode
 from app.state import GraphState
@@ -12,6 +13,7 @@ def make_fetch_node(memory: RunMemory, headless_fetcher: HeadlessFetcher):
     async def fetch_node(state: GraphState) -> dict:
         job = state["job"]
         assert job is not None
+        log_node_entry("fetch", job)
 
         await memory.throttle()
 

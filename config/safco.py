@@ -9,6 +9,7 @@ from this SiteAdapter instance.
 from app.schemas import PaginationConfig, RenderMode, SiteAdapter
 
 SAFCO_ADAPTER = SiteAdapter(
+    site_id="safco",
     base_url="https://www.safcodental.com",
     categories=[
         "https://www.safcodental.com/catalog/sutures-surgical-products",

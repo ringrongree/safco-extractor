@@ -12,7 +12,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from app.schemas import FailureRecord, Product
+from app.schemas import FailureRecord, LoopTrace, Product
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "safco.db"
 
@@ -50,6 +50,34 @@ CREATE TABLE IF NOT EXISTS failures (
     attempts INTEGER,
     last_render_mode TEXT,
     timestamp TEXT
+);
+
+CREATE TABLE IF NOT EXISTS traces (
+    trace_id TEXT PRIMARY KEY,
+    run_id TEXT,
+    job_id TEXT,
+    url TEXT,
+    page_type TEXT,
+    reasoning TEXT,
+    decision TEXT,
+    confidence REAL,
+    render_mode TEXT,
+    extraction_method TEXT,
+    timestamp TEXT,
+    html_blob_path TEXT
+);
+
+CREATE TABLE IF NOT EXISTS runs (
+    run_id TEXT PRIMARY KEY,
+    site_id TEXT,
+    status TEXT,
+    pages_fetched INTEGER,
+    products_found INTEGER,
+    llm_calls INTEGER,
+    dead_letters INTEGER,
+    elapsed_seconds REAL,
+    started_at TEXT,
+    finished_at TEXT
 );
 """
 
@@ -108,6 +136,59 @@ def insert_failure(conn: sqlite3.Connection, record: FailureRecord) -> None:
             record.error, record.attempts,
             record.last_render_mode.value if record.last_render_mode else None,
             record.timestamp,
+        ),
+    )
+    conn.commit()
+
+
+def insert_trace(conn: sqlite3.Connection, trace: LoopTrace, run_id: str) -> None:
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO traces (
+            trace_id, run_id, job_id, url, page_type, reasoning, decision,
+            confidence, render_mode, extraction_method, timestamp, html_blob_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            trace.trace_id, run_id, trace.job_id, trace.url,
+            trace.page_type.value if trace.page_type else None,
+            trace.reasoning, trace.decision, trace.confidence,
+            trace.render_mode.value if trace.render_mode else None,
+            trace.extraction_method.value if trace.extraction_method else None,
+            trace.timestamp, trace.html_blob_path,
+        ),
+    )
+    conn.commit()
+
+
+def upsert_run(
+    conn: sqlite3.Connection,
+    run_id: str,
+    site_id: str | None,
+    status: str,
+    pages_fetched: int,
+    products_found: int,
+    llm_calls: int,
+    dead_letters: int,
+    elapsed_seconds: float,
+    started_at: str,
+    finished_at: str | None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO runs (
+            run_id, site_id, status, pages_fetched, products_found, llm_calls,
+            dead_letters, elapsed_seconds, started_at, finished_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_id) DO UPDATE SET
+            site_id=excluded.site_id, status=excluded.status,
+            pages_fetched=excluded.pages_fetched, products_found=excluded.products_found,
+            llm_calls=excluded.llm_calls, dead_letters=excluded.dead_letters,
+            elapsed_seconds=excluded.elapsed_seconds, finished_at=excluded.finished_at
+        """,
+        (
+            run_id, site_id, status, pages_fetched, products_found, llm_calls,
+            dead_letters, elapsed_seconds, started_at, finished_at,
         ),
     )
     conn.commit()

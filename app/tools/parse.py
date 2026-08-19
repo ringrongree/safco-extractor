@@ -52,10 +52,20 @@ def extract_meta_keywords(html: str) -> list[str]:
     return [s.strip() for s in content.split(",") if s.strip()]
 
 
+_BARE_NUMERIC_SUFFIX_RE = re.compile(r"^\d+/?$")
+
+
 def discover_child_category_links(html: str, current_url: str, base_url: str) -> list[str]:
     """Sub-category links that are strict descendants of current_url. Restricting
     to descendants (not just any /catalog/ link) keeps the crawl scoped to the
-    two seed categories instead of following the site's full global nav menu."""
+    seed categories instead of following the site's full global nav menu.
+
+    Excludes hrefs whose only suffix beyond current_url is a bare number
+    (e.g. current_url + "/2") — under path_suffix pagination (Net32) those
+    are page links, not sub-categories, and would otherwise collide with this
+    prefix-match. Safco's query_param pagination (?p=2) never matches this
+    prefix at all (the "?" filter below already excludes it), so this guard
+    is a no-op there."""
     tree = HTMLParser(html)
     prefix = current_url.rstrip("/") + "/"
     found: set[str] = set()
@@ -66,13 +76,27 @@ def discover_child_category_links(html: str, current_url: str, base_url: str) ->
         if href.startswith("/"):
             href = base_url.rstrip("/") + href
         if href.startswith(prefix) and "?" not in href and "#" not in href:
+            suffix = href[len(prefix):]
+            if _BARE_NUMERIC_SUFFIX_RE.match(suffix):
+                continue
             found.add(href.rstrip("/"))
     return sorted(found)
 
 
-def discover_listing_product_links(html: str, selector: str) -> list[str]:
-    """Tier-2 fallback for product links on a listing page (config selector)."""
-    return css_all_attr(html, selector, "href")
+def discover_listing_product_links(html: str, selector: str, base_url: str = "") -> list[str]:
+    """Tier-2 fallback for product links on a listing page (config selector).
+
+    Resolves root-relative hrefs (e.g. "/ec/...-d-172552?tsid=...", seen live
+    on Net32 — BUILD_REPORT.md §10) against base_url. Without this, a relative
+    href reached fetch_static/fetch_headless directly and crawl4ai rejected it
+    ("URL must start with 'http://'...") — a generic bug (any selector-based
+    listing extraction can return relative hrefs), not Net32-specific;
+    discover_child_category_links already did this resolution, this one
+    hadn't caught up."""
+    hrefs = css_all_attr(html, selector, "href")
+    if not base_url:
+        return hrefs
+    return [base_url.rstrip("/") + h if h.startswith("/") else h for h in hrefs]
 
 
 def classify_heuristic(html: str, url: str) -> tuple[PageType | None, str]:

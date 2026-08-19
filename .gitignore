@@ -4,4 +4,5 @@ __pycache__/
 .env
 data/safco.db
 data/exports/
+data/logs/
 .crawl4ai/

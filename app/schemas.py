@@ -71,6 +71,8 @@ class RecoveryStage(str, Enum):
     EXTRACT = "extract"
     VALIDATE = "validate"
     STORE = "store"
+    ENQUEUE = "enqueue"
+    NEXT_JOB = "next_job"
 
 
 # ---------------------------------------------------------------------------
@@ -160,17 +162,38 @@ class FailureRecord(BaseModel):
 # ---------------------------------------------------------------------------
 
 class PaginationConfig(BaseModel):
+    # type: "query_param" (Safco, ?p=N) | "path_suffix" (Net32, /N; page 1 = bare url)
     type: str = "query_param"
     param: str = "p"
 
 
+class CanonicalConfig(BaseModel):
+    strip_query_params: bool = False
+
+
+class AlternativesConfig(BaseModel):
+    """Step-2 seam (NET32_GENERALIZATION_KICKOFF.md §6 Seam D). Unused in Step 1 —
+    Product.alternatives[] stays null until the headless recs-widget extraction
+    is built."""
+    source: str = "recs_widget"
+    requires_render: RenderMode = RenderMode.HEADLESS
+
+
 class SiteAdapter(BaseModel):
+    site_id: Optional[str] = None
     base_url: str
     allowed_paths: list[str] = Field(default_factory=list)
     rate_limit: float = 2.0  # seconds between requests
     start_render_mode: RenderMode = RenderMode.STATIC
     pagination: PaginationConfig = Field(default_factory=PaginationConfig)
+    canonical: CanonicalConfig = Field(default_factory=CanonicalConfig)
     selectors: dict[str, str] = Field(default_factory=dict)
     categories: list[str] = Field(default_factory=list)
     max_products_per_category: int = 25
     max_pages: int = 200
+    alternatives: Optional[AlternativesConfig] = None
+    # When tier-1 (structured data) succeeds but leaves `specifications` empty,
+    # attempt one LLM call to fill it (and, if it surfaces a manufacturer/vendor
+    # code, to correct `sku`) rather than accepting it as always-empty. Off by
+    # default so this never changes Safco's 0-LLM-call regression.
+    fill_missing_specifications_via_llm: bool = False

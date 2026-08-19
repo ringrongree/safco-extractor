@@ -8,11 +8,13 @@ is shared/mutable run state, not per-iteration data.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from collections import deque
 from dataclasses import dataclass, field
 
 from app.schemas import FailureRecord, Job, LoopTrace, Product, SiteAdapter
+from app.storage import insert_trace
 
 
 @dataclass
@@ -94,6 +96,14 @@ class RunMemory:
             if wait > 0:
                 await asyncio.sleep(wait)
             self._last_request_ts = time.monotonic()
+
+    def log_trace(self, trace: LoopTrace, conn: sqlite3.Connection) -> None:
+        """Append to in-run memory AND persist to SQLite. BUILD_SPEC.md §7A's
+        "store... to disk or a blob column" was previously satisfied only by
+        the first half of this (see INVENTORY_REPORT.md finding C) — this is
+        the fix, closed per NET32_GENERALIZATION_KICKOFF.md §4.5."""
+        self.traces.append(trace)
+        insert_trace(conn, trace, self.run_id)
 
     def add_product(self, product: Product) -> bool:
         """Upsert-in-memory on (canonical url, sku). Returns True if newly added."""

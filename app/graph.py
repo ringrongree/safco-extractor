@@ -31,12 +31,12 @@ RECURSION_LIMIT = 20000  # bounds LangGraph super-steps for a whole crawl run
 def build_graph(memory: RunMemory, adapter: SiteAdapter, headless_fetcher: HeadlessFetcher, conn: sqlite3.Connection):
     graph = StateGraph(GraphState)
 
-    graph.add_node("next_job", make_next_job_node(memory))
+    graph.add_node("next_job", make_next_job_node(memory, conn))
     graph.add_node("fetch", make_fetch_node(memory, headless_fetcher))
-    graph.add_node("classify", make_classify_node(memory))
-    graph.add_node("enqueue", make_enqueue_node(memory, adapter))
-    graph.add_node("extract", make_extract_node(memory, adapter))
-    graph.add_node("validate", make_validate_node(memory))
+    graph.add_node("classify", make_classify_node(memory, conn))
+    graph.add_node("enqueue", make_enqueue_node(memory, adapter, conn))
+    graph.add_node("extract", make_extract_node(memory, adapter, conn))
+    graph.add_node("validate", make_validate_node(memory, conn))
     graph.add_node("store", make_store_node(memory, conn))
     graph.add_node("recover", make_recover_node(memory, adapter, conn))
 

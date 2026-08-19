@@ -1,0 +1,127 @@
+{
+  "llm_n": 15,
+  "oracle_n": 15,
+  "compare": {
+    "oracle": "present",
+    "oracle_present": true,
+    "row_count_match": false,
+    "llm_row_count": 15,
+    "oracle_row_count": 15,
+    "matched_skus": [],
+    "llm_only_skus": [
+      "102-5801",
+      "102-5807",
+      "102-5811",
+      "102-5815",
+      "102-5822",
+      "102-5829",
+      "102-5833",
+      "102-5847",
+      "102-5859",
+      "102-5861",
+      "102-5865",
+      "102-5870",
+      "102-5875",
+      "102-5879",
+      "102-5885"
+    ],
+    "oracle_only_skus": [
+      "1025801",
+      "1025807",
+      "1025811",
+      "1025815",
+      "1025822",
+      "1025829",
+      "1025833",
+      "1025847",
+      "1025859",
+      "1025861",
+      "1025865",
+      "1025870",
+      "1025875",
+      "1025879",
+      "1025885"
+    ],
+    "field_match": {},
+    "image_overlap": null,
+    "image_overlap_by_sku": {},
+    "fan_out_diverged": true
+  },
+  "llm": [
+    {
+      "sku": "102-5801",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5807",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5811",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5815",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5822",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5829",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5833",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5847",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5859",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5861",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5865",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5870",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5875",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5879",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    },
+    {
+      "sku": "102-5885",
+      "name": "Safco SureStitch sutures",
+      "price": 30.49
+    }
+  ]
+}

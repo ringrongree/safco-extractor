@@ -5,8 +5,10 @@ a failure: anything that exhausts recovery becomes a FailureRecord.
 """
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 
+from app.logging_setup import log_node_entry
 from app.memory import RunMemory
 from app.schemas import FailureRecord, RecoveryStage, RenderMode, SiteAdapter
 from app.state import GraphState
@@ -15,6 +17,13 @@ from app.tools.llm_extract import repair_selector_with_llm
 
 MAX_ATTEMPTS = 2
 
+# A retry after a bot-challenge block (Net32/Cloudflare — BUILD_REPORT.md §10)
+# is more likely to help if it isn't immediate. Generic substring match on the
+# fetch error, not a host check — any site fronted by a JS-challenge WAF would
+# surface a similarly-worded error from crawl4ai/httpx.
+_ANTI_BOT_ERROR_MARKERS = ("cloudflare", "anti-bot", "challenge", "403")
+_ANTI_BOT_BACKOFF_SECONDS = 8.0
+
 
 def make_recover_node(memory: RunMemory, adapter: SiteAdapter, conn: sqlite3.Connection):
     async def recover_node(state: GraphState) -> dict:
@@ -22,6 +31,7 @@ def make_recover_node(memory: RunMemory, adapter: SiteAdapter, conn: sqlite3.Con
         stage = state.get("stage_failed") or "unknown"
         html = state.get("html", "")
         assert job is not None
+        log_node_entry("recover", job)
 
         job.attempts += 1
 
@@ -46,6 +56,8 @@ def make_recover_node(memory: RunMemory, adapter: SiteAdapter, conn: sqlite3.Con
             if job.render_mode == RenderMode.STATIC:
                 job.render_mode = RenderMode.HEADLESS
                 return {"job": job, "recovery_action": "escalate_render"}
+            if any(marker in error.lower() for marker in _ANTI_BOT_ERROR_MARKERS):
+                await asyncio.sleep(_ANTI_BOT_BACKOFF_SECONDS)
             return {"job": job, "recovery_action": "retry"}
 
         if stage == "classify":

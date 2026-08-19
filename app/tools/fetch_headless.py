@@ -58,7 +58,14 @@ class HeadlessFetcher:
             return
         async with self._start_lock:
             if self._crawler is None:
-                crawler = AsyncWebCrawler(config=BrowserConfig(headless=True))
+                # enable_stealth: Net32 fronts every page with a Cloudflare JS
+                # challenge (BUILD_REPORT.md §10) that reliably re-triggered on
+                # the 2nd+ request in a session even with backoff/delay — a
+                # fingerprinting block, not a rate-limit one. This is a
+                # first-class crawl4ai/Playwright config flag (not custom
+                # evasion code); Safco never exercises headless in its happy
+                # path, so this doesn't touch its behavior.
+                crawler = AsyncWebCrawler(config=BrowserConfig(headless=True, enable_stealth=True))
                 await crawler.__aenter__()
                 self._crawler = crawler
 

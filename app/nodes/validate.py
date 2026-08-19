@@ -4,28 +4,33 @@ this node's job is the data-quality gate: a row with neither a name nor a SKU
 is not worth storing."""
 from __future__ import annotations
 
+import sqlite3
+
+from app.logging_setup import log_node_entry
 from app.memory import RunMemory
 from app.schemas import ExtractionMethod, LoopTrace
 from app.state import GraphState
 
 
-def make_validate_node(memory: RunMemory):
+def make_validate_node(memory: RunMemory, conn: sqlite3.Connection):
     async def validate_node(state: GraphState) -> dict:
         job = state["job"]
         products = state.get("extracted_products", [])
         assert job is not None
+        log_node_entry("validate", job)
 
         valid = [p for p in products if p.name or p.sku]
         dropped = len(products) - len(valid)
 
         ok = len(valid) > 0
-        memory.traces.append(
+        memory.log_trace(
             LoopTrace(
                 job_id=job.job_id,
                 url=job.url,
                 decision=f"validate: {len(valid)} kept, {dropped} dropped (no name/sku)",
                 extraction_method=ExtractionMethod.NONE,
-            )
+            ),
+            conn,
         )
         return {
             "extracted_products": valid,

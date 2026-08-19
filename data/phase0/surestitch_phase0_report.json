@@ -1,0 +1,21 @@
+{
+  "url": "https://www.safcodental.com/product/safco-surestitch-trade-sutures",
+  "verdict": "option_1_invert_neither",
+  "stop": true,
+  "oracle_static": 15,
+  "oracle_headless": 15,
+  "visible_dom": {
+    "hyphen_sku_hits_in_25k_static": 15,
+    "hyphen_sku_hits_in_25k_headless": 15,
+    "source_of_skus_in_slice": "meta[name=keywords] comma list only",
+    "variant_name_rows_in_stripped_html": 0,
+    "alpine_table": "x-html=item.product_sku still unhydrated after 6s headless",
+    "variant_payload_location": "application/ld+json ProductGroup.hasVariant + window.masterData inside <script>"
+  },
+  "llm_on_headless_visible_slice": {
+    "llm_n": 15,
+    "oracle_n": 15,
+    "row_count_match": false,
+    "reason": "LLM SKUs hyphenated from keywords (102-5801); oracle SKUs bare (1025801); zero matched keys. Names cloned to page title; prices cloned to 30.49; availability Unknown."
+  }
+}
