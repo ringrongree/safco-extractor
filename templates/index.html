@@ -1,0 +1,87 @@
+<title>Safco Catalog Extractor (POC)</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 780px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  label { display: block; margin-top: 1rem; font-weight: 600; font-size: 0.9rem; }
+  textarea, input { width: 100%; box-sizing: border-box; padding: 0.4rem; font-family: monospace; font-size: 0.9rem; }
+  textarea { height: 4.5rem; }
+  button { margin-top: 1.2rem; padding: 0.5rem 1.2rem; font-size: 1rem; cursor: pointer; }
+  #status { margin-top: 1.5rem; padding: 1rem; background: #f5f5f5; border-radius: 6px; display: none; }
+  #status.visible { display: block; }
+  .row { display: flex; gap: 2rem; flex-wrap: wrap; }
+  .row div { min-width: 140px; }
+  .row .n { font-size: 1.4rem; font-weight: 700; }
+  .row .lbl { font-size: 0.8rem; color: #666; }
+  a.results-link { display: inline-block; margin-top: 1rem; }
+  .hint { color: #666; font-size: 0.85rem; }
+</style>
+
+<h1>Safco Catalog Extractor (POC)</h1>
+<p class="hint">Crawls the two configured Safco Dental Supply categories via a LangGraph spine. Caps below bound the run — see <code>config/safco.py</code>.</p>
+
+<form id="run-form">
+  <label for="categories">Category URLs (one per line)</label>
+  <textarea id="categories" name="categories">{% for c in categories %}{{ c }}
+{% endfor %}</textarea>
+
+  <label for="max_products">Max products per category</label>
+  <input id="max_products" type="number" min="1" value="{{ max_products_per_category }}">
+
+  <label for="delay">Request delay (seconds)</label>
+  <input id="delay" type="number" min="0" step="0.5" value="{{ request_delay_seconds }}">
+
+  <button type="submit">Run</button>
+</form>
+
+<div id="status">
+  <div class="row">
+    <div><div class="n" id="s-pages">0</div><div class="lbl">pages fetched</div></div>
+    <div><div class="n" id="s-products">0</div><div class="lbl">products found</div></div>
+    <div><div class="n" id="s-llm">0</div><div class="lbl">LLM calls</div></div>
+    <div><div class="n" id="s-dead">0</div><div class="lbl">dead-letters</div></div>
+    <div><div class="n" id="s-frontier">0</div><div class="lbl">queue remaining</div></div>
+  </div>
+  <p id="s-state"></p>
+  <a class="results-link" id="results-link" href="#" style="display:none">View results &rarr;</a>
+</div>
+
+<script>
+const form = document.getElementById('run-form');
+const statusBox = document.getElementById('status');
+let poller = null;
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const categories = document.getElementById('categories').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const body = {
+    categories,
+    max_products_per_category: parseInt(document.getElementById('max_products').value, 10),
+    request_delay_seconds: parseFloat(document.getElementById('delay').value),
+  };
+  const resp = await fetch('/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+  statusBox.classList.add('visible');
+  document.getElementById('results-link').href = '/results/' + data.run_id;
+  document.getElementById('results-link').style.display = 'inline-block';
+  if (poller) clearInterval(poller);
+  poller = setInterval(() => pollStatus(data.run_id), 1500);
+  pollStatus(data.run_id);
+});
+
+async function pollStatus(runId) {
+  const resp = await fetch('/status/' + runId);
+  const s = await resp.json();
+  document.getElementById('s-pages').textContent = s.pages_fetched;
+  document.getElementById('s-products').textContent = s.products_found;
+  document.getElementById('s-llm').textContent = (s.llm_calls && s.llm_calls.total) || 0;
+  document.getElementById('s-dead').textContent = s.dead_letters;
+  document.getElementById('s-frontier').textContent = s.frontier_size;
+  document.getElementById('s-state').textContent = 'status: ' + s.status + (s.error_message ? (' — ' + s.error_message) : '');
+  if (s.done && poller) { clearInterval(poller); poller = null; }
+}
+</script>

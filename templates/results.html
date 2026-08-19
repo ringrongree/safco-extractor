@@ -1,0 +1,56 @@
+<title>Results — {{ run_id }}</title>
+{% if not snapshot.done %}<meta http-equiv="refresh" content="5">{% endif %}
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
+  h1 { font-size: 1.3rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { border: 1px solid #ddd; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  th { background: #f5f5f5; position: sticky; top: 0; }
+  tr:nth-child(even) { background: #fafafa; }
+  .meta { color: #666; margin-bottom: 1rem; }
+  .exports a { margin-right: 1rem; }
+  .badge { padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.75rem; }
+  .structured { background: #d4edda; }
+  .selector { background: #fff3cd; }
+  .llm { background: #d1ecf1; }
+  .none, .None { background: #f8d7da; }
+</style>
+
+<h1>Run {{ run_id }}</h1>
+<p class="meta">
+  status: {{ snapshot.status }} &middot;
+  pages fetched: {{ snapshot.pages_fetched }} &middot;
+  products found: {{ snapshot.products_found }} &middot;
+  dead-letters: {{ snapshot.dead_letters }}
+  {% if not snapshot.done %}&middot; <em>auto-refreshing every 5s&hellip;</em>{% endif %}
+</p>
+<p class="exports">
+  <a href="/export/{{ run_id }}.csv">Download CSV</a>
+  <a href="/export/{{ run_id }}.json">Download JSON</a>
+  <a href="/">&larr; back</a>
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Name</th><th>SKU</th><th>Brand</th><th>Pack size</th><th>Price</th>
+      <th>Price status</th><th>Availability</th><th>Extraction</th><th>Category</th><th>Canonical URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in products %}
+    <tr>
+      <td>{{ p.name or "" }}</td>
+      <td>{{ p.sku or "" }}</td>
+      <td>{{ p.brand or "" }}</td>
+      <td>{{ p.pack_size or "" }}</td>
+      <td>{{ p.price if p.price is not none else "" }} {{ p.currency or "" }}</td>
+      <td>{{ p.price_status.value if p.price_status else "" }}</td>
+      <td>{{ p.availability.value if p.availability else "" }}</td>
+      <td><span class="badge {{ p.extraction_method.value if p.extraction_method else 'none' }}">{{ p.extraction_method.value if p.extraction_method else "" }}</span></td>
+      <td>{{ p.category_path | join(" &rsaquo; ") }}</td>
+      <td><a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
