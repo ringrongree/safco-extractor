@@ -1,347 +1,200 @@
 # Safco Catalog Extractor (POC)
 
-An agent-based scraper that crawls two Safco Dental Supply categories, extracts
-every product (and every variant), normalizes the data, and stores it in a
-queryable form — built per `BUILD_SPEC.md`, the locked build brief. See
-`BUILD_REPORT.md` for an honest log of what's built, what's stubbed, and what
-was learned from the live site along the way.
+## 1. What this is
 
-## 1. Architecture overview
+Working two-site catalog POC: Safco is JSON-LD/static with a real 225-row dump; Net32 is headless + LLM for page type and spec tables. It is **not** a demonstrated 3-tier extract cascade, and the LLM is **not** a proven variant extractor.
 
-A LangGraph state machine is the spine. Nodes do work; conditional edges route;
-a `RunMemory` object (frontier queue, visited set, canonical map, governor
-counters) carries state across iterations. The graph's own loop *is* the crawl
-— a `NEXT_JOB` node pops the frontier and routes back to `FETCH` until the
-queue is empty or the budget governor stops it, rather than an outer Python
-`while` loop calling the graph once per URL.
+---
+
+## 2. Architecture overview
+
+The crawl is a LangGraph state machine: observe → analyze → act, recursed until the frontier is empty or the page budget is hit. Shared `RunMemory` holds the frontier, visited set, governor counters, and in-process product list. The graph’s own cycle **is** the crawl — there is no outer `while` over URLs.
+
+**Eight nodes:** `next_job`, `fetch`, `classify`, `enqueue`, `extract`, `validate`, `store`, `recover`.
+
+Edge flow: `next_job → fetch → classify → enqueue|extract → validate → store → next_job`. `recover` is a branch off typed failures (`fetch_error` / unknown page type / extract or validate `stage_failed`); it routes back to `fetch`, `extract`, or `next_job` (dead-letter).
 
 ```
-        ┌──────────┐
-        │ NEXT_JOB │◄─────────────────────────────┐
-        └────┬─────┘                               │
-     done?    │ url                                 │
-      END ◄───┤                                     │
-             ▼                                      │
-        ┌──────────┐        fetch error       ┌───────────┐
-        │  FETCH   │ ────────────────────────► │  RECOVER  │
-        └────┬─────┘                            └─────┬─────┘
-             ▼ html                        retry/escalate/repair │ dead-letter
-        ┌──────────┐                                  │          │
-        │ CLASSIFY │ ── unknown ──────────────────────┘          │
-        └────┬─────┘                                             │
-     ┌───────┼─────────┐                                         │
-     ▼       ▼         ▼                                         │
- category  listing   product                                     │
-     │       │         │                                         │
-     └───┬───┘         ▼                                         │
-         ▼         ┌──────────┐   extract fails (after retries)  │
-    ┌──────────┐    │ EXTRACT  │──────────────────────────────────┤
-    │ ENQUEUE  │    └────┬─────┘                                  │
-    └────┬─────┘         ▼ ok                                     │
-         │           ┌──────────┐  fails                          │
-         │           │ VALIDATE │──────────────────────────────────┘
-         │           └────┬─────┘
-         │                ▼ ok
-         │           ┌──────────┐
-         │           │  STORE   │
-         │           └────┬─────┘
-         └────────────────┴──────────► back to NEXT_JOB
+  next_job ──empty/budget──► END
+      │
+      ▼
+    fetch ──fetch_error──► recover ──retry/escalate──► fetch
+      │                         │
+      ▼                         ├──repair_selector──► extract
+   classify                     └──dead_letter──► next_job
+      │
+      ├── category|listing ──► enqueue ──► next_job
+      ├── product ───────────► extract ──fail──► recover
+      └── unknown ───────────► recover            │
+                                     extract ok ──▼
+                                               validate ──fail──► recover
+                                                   │ ok
+                                                 store ──► next_job
 ```
 
-**Agents decide, tools execute.** Every node is a thin async function bound to
-shared `RunMemory`/`SiteAdapter` via closure (`app/nodes/*.py`); the actual
-mechanics (HTTP fetch, Playwright render, HTML parsing, JSON-LD extraction,
-DeepSeek calls) live in stateless, individually testable functions under
-`app/tools/*.py`.
+---
 
-## 2. Why this approach
+## 3. Why this approach
 
-- **LangGraph over a hand-rolled loop or plain asyncio**: cycles (nodes routing
-  back to earlier nodes) are LangGraph's core primitive, which is exactly what
-  "keep crawling until the queue's empty, with recovery as an edge every node
-  can take" needs. It also reads as a real state machine to a reviewer, not a
-  script with `if` statements pretending to be agentic.
-- **Extraction cascade (structured data → config selectors → LLM), stop at
-  first success**: cost discipline. An LLM call is the most expensive, least
-  reliable way to get a field — it's the last resort, not the first move.
-- **Canonical URL (+ SKU) as the dedup/storage key, not the crawl path**: the
-  live site confirmed crawl URL and canonical URL diverge
-  (`/catalog/.../safco-surestitch-sutures` → `/product/safco-surestitch-trade-sutures`).
-  Keying on crawl path would silently duplicate rows across re-crawls.
-- **Render split as an upfront-ish routing rule, refined by what the live site
-  actually does**: see §4 below — this is the one place the build deviated
-  from the original recon assumption, based on evidence gathered while
-  building, and it's the most important thing to read before trusting the
-  rest of this document.
+**Loop-as-graph.** A cyclic crawl with recovery as an edge is LangGraph’s native shape: nodes do work, conditional edges route, state is explicit. An outer Python loop calling the graph once per URL would hide that machine.
 
-## 3. Agent responsibilities
+**Intelligence in the graph, mechanics in tools.** Nodes decide (page type, cascade tier, recover vs dead-letter). Fetch, parse, JSON-LD, upsert, and LLM HTTP live in `app/tools/` (plus `app/llm.py` / `app/storage.py`) so they can be tested without spinning the graph.
 
-| Node | Responsibility | Tools it calls |
-|---|---|---|
-| `FETCH` | Observe: tier-routed fetch (static now, headless only on escalation) | `fetch_static`, `fetch_headless` |
-| `CLASSIFY` | Analyze: page type — heuristic first, DeepSeek only on ambiguity | `classify_heuristic`, `classify_with_llm` |
-| `ENQUEUE` | Act/navigate: discover sub-categories + product URLs, respect caps, handle pagination | `structured_extract_subcategory_urls`, `structured_extract_listing_urls`, selector fallback |
-| `EXTRACT` | Act: run the 3-tier cascade | `structured_extract_product`, selector helpers, `extract_fallback_with_llm` |
-| `VALIDATE` | Data-quality gate: drop rows with neither name nor SKU | — (Pydantic already enforces the schema at construction) |
-| `STORE` | Act: idempotent upsert | `storage.upsert_product` |
-| `RECOVER` | Decide: retry / escalate render / repair selector / dead-letter | `repair_selector_with_llm`, re-routes to `FETCH`/`EXTRACT` |
+**LLM only on interpretation.** Allowed call sites: classify, spec-table fill, cascade last-resort extract, selector-repair. Not fetch, not dedup, not store. Cost discipline: stop the extract cascade at first success. In this POC, classify + spec-fill **work** on Net32; last-resort extract and selector-repair are **wired but never fired in a crawl**.
 
-## 4. What the live site actually does (and why the design changed mid-build)
+**Disclosed deviation from the brief’s render split.** The take-home assumed AJAX-only price/grid and headless-first. Safco **server-renders JSON-LD** (`ProductGroup` / `ItemList`) in static HTML, so the adapter is **static-first**, with headless as `recover` escalate-render. Net32 is the opposite: Cloudflare 403 on static, so the adapter is **headless-first**.
 
-The take-home brief and the internal planning doc both assumed price and the
-product grid are **AJAX-only** and need headless rendering everywhere. That
-assumption was tested directly (BUILD_SPEC.md §18 step 1 — see
-`BUILD_REPORT.md` for the full proof log) and turned out to be half right:
+---
 
-- The **listing grid on a raw static fetch is genuinely empty** (`Loading...`
-  placeholder) — headless *is* needed to see it rendered visually.
-- But Magento/Hyva **also server-renders a parallel JSON-LD `ItemList`** with
-  the same product URLs, names, SKUs, and prices, present in the plain static
-  HTML at every `/catalog/` level (including top-level category rollups that
-  visually show only sub-categories). A second `ItemList` (name ending
-  "Subcategories", items typed `CollectionPage`) carries the sub-category
-  links the same way.
-- Product pages carry a `ProductGroup` JSON-LD block with a `hasVariant[]`
-  array — full SKU/name/price/currency/availability per variant — also
-  present in static HTML.
-- Prices were **not gated** for the session used during this build, contrary
-  to the recon doc's assumption ("unable to process orders for your account").
-  `price_status` still supports `gated`/`not_found` for when that isn't true.
+## 4. Agent responsibilities
 
-**Net effect**: every job (category, listing, product) now starts at
-`render_mode = static`, matching `config/safco.py`'s `start_render_mode`.
-Headless is reserved for `RECOVER`'s escalate-render path — the fallback the
-spec's own §8 describes ("if a static fetch looks empty/AJAX-gated, retry the
-same URL headless") — rather than an upfront blanket rule. In the actual
-sample run this fallback essentially never fires, because the JSON-LD is
-reliable; it's implemented and was verified independently (see
-`BUILD_REPORT.md`), but it isn't exercised by the happy path on this
-particular site. This is disclosed, not hidden, because it's a real deviation
-from BUILD_SPEC.md §8's letter — justified by evidence gathered during the
-build, in the spirit of §0's instruction to read the recon as a starting
-point, not gospel.
+Brief roles (discovery / navigator / classifier / extractor / validator-dedup / recovery) map onto nodes:
+
+| Node | Brief role | Responsibility | Tools |
+|---|---|---|---|
+| `next_job` | navigator (frontier) | Pop next `Job`; stop on empty queue or `max_pages` | `RunMemory.pop`, `budget_exhausted` |
+| `fetch` | observe | Static (`httpx`) or headless (`crawl4ai` / Playwright) per `job.render_mode` | `fetch_static`, `HeadlessFetcher.fetch` |
+| `classify` | classifier | Page type: heuristic first; DeepSeek if ambiguous | `classify_heuristic`, `classify_with_llm` |
+| `enqueue` | discovery + navigator | Enqueue subcats + product URLs; pagination helpers; respect per-category cap | `structured_extract_subcategory_urls`, `structured_extract_listing_urls`, selector discovery fallbacks, `normalize_url` |
+| `extract` | extractor | Cascade: JSON-LD → config selectors → LLM last resort; optional LLM spec overlay | `structured_extract_product`, CSS helpers, `extract_specifications_with_llm`, `extract_fallback_with_llm` |
+| `validate` | validator | Drop rows with neither name nor SKU | in-node gate (Pydantic already shapes the row) |
+| `store` | validator-dedup | Idempotent upsert; in-memory list for the UI | `upsert_product`, `RunMemory.add_product` |
+| `recover` | recovery | retry / escalate-render / repair-selector / dead-letter | `repair_selector_with_llm`, `insert_failure` |
+
+---
 
 ## 5. Setup & execution
 
+Cold clone (from this directory):
+
 ```bash
-git clone <this repo> safco-extractor
-cd safco-extractor
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-crawl4ai-setup                   # installs Playwright browsers
-cp .env.example .env             # add your DEEPSEEK_API_KEY
+crawl4ai-setup
+cp .env.example .env # add DEEPSEEK_API_KEY
 uvicorn app.main:app --reload
-# open http://localhost:8000
+
+open http://localhost:8000
 ```
 
-The index page is pre-filled with the two Safco categories and the POC caps
-from `config/safco.py`. Click **Run**; the page polls `/status/{run_id}` for
-live counters and links to `/results/{run_id}` for the product table, with
-CSV/JSON export links.
+UI routes:
 
-**Windows note**: `uvicorn --reload` forces a Selector-based asyncio event
-loop on Windows, which can't spawn the subprocess Playwright needs for a
-headless fetch. Headless is only used as a `RECOVER` fallback (see §4), so a
-normal run against Safco is unaffected — but if you need a run that might
-genuinely escalate to headless, drop `--reload`. See `BUILD_REPORT.md` §6–7
-for the full story.
+| Method | Path |
+|---|---|
+| `GET` | `/` |
+| `POST` | `/run` |
+| `GET` | `/status/{id}` |
+| `GET` | `/results/{id}` |
+| `GET` | `/export/{id}.csv` |
+| `GET` | `/export/{id}.json` |
 
-To reproduce the committed sample dataset directly (no UI, no server):
+**Caveat:** `/status`, `/results`, and `/export` read an in-process `RUNS` dict keyed by `run_id`. They only work in the **same process** that handled `POST /run`. After a restart they 404 even if SQLite still has products/traces.
 
-```bash
-python -c "
-import asyncio, copy
-from app.memory import RunMemory
-from app.schemas import Job, JobType, RenderMode
-from app.storage import get_connection
-from app.graph import run_crawl
-from config.safco import SAFCO_ADAPTER
+POC caps live on `SiteAdapter` (`config/safco.py`, `config/net32.py`): Safco `max_products_per_category=25`, `max_pages=200`, `rate_limit=2.0`; Net32 `12` / `20` / `6.0`. Host routing is `config/registry.py`.
 
-async def main():
-    adapter = copy.deepcopy(SAFCO_ADAPTER)
-    memory = RunMemory(adapter=adapter, run_id='sample_run')
-    for url in adapter.categories:
-        memory.push(Job(url=url, type=JobType.CATEGORY, render_mode=RenderMode.STATIC))
-    conn = get_connection()
-    await run_crawl(memory, adapter, conn)
-    conn.close()
-    print(memory.snapshot())
+---
 
-asyncio.run(main())
-"
-```
+## 6. Sample output schema
 
-## 6. Output schema
+Five Pydantic models in `app/schemas.py`. Missing fields are explicit `null` / empty collections — never fabricated.
 
-One row per **variant** (`app/schemas.py::Product`):
+Committed dumps: `data/samples/` (`safco_all_products.{json,csv}`, per-category Safco files, `net32/net32_gloves.{json,csv}`). SQLite at `data/safco.db` is gitignored and is **not** the deliverable dataset.
+
+### Product (one row per variant)
 
 | Field | Type | Notes |
 |---|---|---|
-| `product_id`, `variant_id` | str | `variant_id` is the SKU |
-| `name`, `brand`, `sku` | str \| null | |
-| `category_path` | list[str] | breadcrumb, "Home" and the leaf name dropped |
-| `url` | str | **canonical** URL — the dedup/storage key |
-| `crawl_url` | str | URL actually fetched (may differ from canonical) |
-| `price`, `currency` | float \| null, str \| null | |
+| `product_id` | `str` | UUID hex |
+| `variant_id` | `str \| null` | SKU when present |
+| `name`, `brand`, `sku` | `str \| null` | |
+| `category_path` | `list[str]` | Seed category path from the job, not the full breadcrumb root |
+| `url` | `str \| null` | **Canonical** URL — half of the upsert key |
+| `crawl_url` | `str \| null` | URL actually fetched (may differ from canonical) |
+| `price` | `float \| null` | |
+| `currency` | `str \| null` | |
 | `price_status` | enum | `visible` \| `gated` \| `not_found` |
-| `pack_size` | str \| null | regex-guessed from the variant name, e.g. `"12/box"` |
-| `availability` | enum | `In stock` / `Partially in stock` / `Backordered` / `Special order` / `Out of stock` / `Unknown` |
-| `description`, `specifications`, `image_urls`, `alternatives` | | `specifications` filled on Net32 via gated LLM; empty on Safco. `alternatives` empty on both — see §7 |
-| `extraction_method` | enum | `structured` \| `selector` \| `llm` — the data-quality signal |
-| `scraped_at`, `source_hash` | | `source_hash` detects change on re-crawl |
+| `pack_size` | `str \| null` | Regex from variant name when it matches |
+| `availability` | enum | Schema has six values; **seen in this POC: `In stock` / `Unknown` only** |
+| `description` | `str \| null` | |
+| `specifications` | `dict[str, str]` | **0%** on Safco sample; **12/12** on Net32 via LLM overlay |
+| `image_urls` | `list[str]` | |
+| `alternatives` | `list[str]` | **0%** on both samples (recs-widget stub) |
+| `extraction_method` | enum | `structured` \| `selector` \| `llm` \| `none`. Safco sample: **225/225 `structured`**. Net32 sample: tagged `llm` because specs (and often manufacturer code → `sku`) were filled **after** JSON-LD succeeded — **not** cascade tier 3 |
+| `scraped_at` | `str` | ISO timestamp |
+| `source_hash` | `str \| null` | Hash of name/sku/price/availability/description for change detection |
 
-Missing fields are explicit `null`, never fabricated. Full contract:
-`app/schemas.py` (5 Pydantic models — `LoopTrace`, `Product`, `Job`,
-`FailureRecord`, `SiteAdapter`).
+Upsert key: **`(canonical url, sku)`**.
 
-Storage: SQLite at `data/safco.db`, upsert on `(canonical url, sku)` — idempotent
-re-runs. `data/samples/` has the committed CSV/JSON exports (per-category and
-combined) from the sample run — see `BUILD_REPORT.md` for the exact numbers.
+**Safco sample (225 rows):** 109 sutures + 116 gloves; 225/225 structured; **0 LLM calls**; **66 pages**; elapsed **~138–145s** (JSONL spans 138.3s / 144.7s). `pack_size` **69.8%** (157/225). `specifications` **0%**. `alternatives` **0%**.
 
-## 7. Limitations (out of scope for draft 1, per BUILD_SPEC.md §14)
+**Net32 sample (12 rows):** specs **100%** via LLM; `alternatives` **0%**; price **11/12**. Matching log: 13 pages, 25 successful LLM calls (classify + `extract_specifications`), 0 cascade-extract / selector-repair calls.
 
-- **No authenticated pricing session.** `price_status` supports `gated`, but
-  the session used for this build saw visible prices via JSON-LD, so that path
-  is implemented but untested against a genuinely gated account.
-- **Spec detail inside linked brochure PDFs** is not followed or parsed.
-- **`specifications`** — solved on Net32 (LLM fill gated by
-  `SiteAdapter.fill_missing_specifications_via_llm`; 12/12 rows, 7–8 fields
-  each). On Safco there is no clean HTML source: JSON-LD carries none, and
-  spec detail lives in linked brochure PDFs. Out of scope for the POC;
-  production path is a PDF-extraction step.
-- **`alternatives`** — the product-page "You may also like" is an Alpine.js
-  personalization widget (per-user recommendations), not a stable list of
-  true alternative SKUs. Out of scope on both sites; extracting it would
-  scrape a personalization surface, not catalog data.
-- **Escalation tiers beyond static/headless** (stealth, proxies, unlocker,
-  CAPTCHA) are documented as a scale path (§9 below), not built.
-- **No distributed frontier.** SQLite + in-process structures only; a run's
-  `RunMemory` lives in the FastAPI process and is lost on restart mid-run.
-- **No LangSmith/external observability.** `LoopTrace` + this report is it.
-- **Pagination is implemented but unexercised** on the live site — no scraped
-  category returned more items than fit in a single `ItemList` block, so the
-  page-2+ code path hasn't been seen to fire against real data (it was not
-  independently unit-tested either — flagged in BUILD_REPORT as a gap).
+### LoopTrace
+
+Per-iteration observability: `job_id`, `url`, `page_type`, `reasoning`, `decision`, `confidence`, `render_mode`, `extraction_method`, `timestamp`, `html_blob_path`. **Persisted to SQLite `traces`.** HTML blobs are **not** written (`html_blob_path` stays null). The stored `extraction_method` column is not a reliable cascade-tier signal (nodes often write `none`).
+
+### Job
+
+Frontier unit: `url`, `type` (`category` \| `listing` \| `product`), `category_path`, `parent_url`, `depth`, `attempts`, `render_mode`.
+
+### FailureRecord
+
+Dead-letter: `job_id`, `url`, `stage`, `error`, `attempts`, `last_render_mode`, `timestamp`. Written to SQLite `failures`. Never a silent drop.
+
+### SiteAdapter
+
+Per-site config as data: URLs, caps, `start_render_mode`, pagination, selectors, `fill_missing_specifications_via_llm` (Safco `False` → 0 LLM on the 225-row run; Net32 `True`).
+
+---
+
+## 7. Limitations (current POC)
+
+- Safco `specifications` and `alternatives` are **0%**. No PDF/brochure route; no recs-widget extraction (`AlternativesConfig` is a seam, unused).
+- Cascade **tier 2 (selector)** and **tier 3 (LLM product extract)** never fired in a real crawl. Stored Safco data is tier-1 JSON-LD only.
+- Isolation LLM product-extract **fails the JSON-LD oracle** (0 SKU matches: hyphenated keyword SKUs vs oracle bare SKUs). Not a working variant extractor.
+- Selector-repair is coded; **never exercised**. `deepseek-v4-pro` was **never observed** in logs. Observed model: `deepseek-v4-flash` (OpenAI SDK → `api.deepseek.com`, `DEEPSEEK_API_KEY`).
+- Pagination is implemented (`query_param` / `path_suffix`); **never fired** at POC caps.
+- `classify_heuristic` is Magento/Safco-shaped (`/catalog/`, `/product/`). Other hosts LLM-classify or fail (unknown → recover → often dead-letter if already headless).
+- Availability: only `In stock` / `Unknown` seen. `gated` prices, backordered, etc. have **no real coverage**.
+- Uncaught exceptions in `fetch` / `extract` / `validate` **abort the run**. `recover` only sees typed `fetch_error` / `stage_failed`.
+- UI results/export are **process-local**, not durable.
+- Windows: Proactor policy in `app/main.py`; `uvicorn --reload` + Playwright is a known conflict (drop `--reload` if a run must headless); deep clone paths can hit `MAX_PATH` via crawl4ai/chardet (not re-tested this pass).
+
+---
 
 ## 8. Failure handling
 
-Every node failure routes to `RECOVER` (`app/nodes/recover.py`), which decides:
+Four recovery paths in `app/nodes/recover.py`:
 
-- **retry** — same render mode, bounded by `MAX_ATTEMPTS` (2 recovery passes,
-  ~3 tries total before dead-letter).
-- **escalate render** — static → headless, for both fetch failures and
-  extraction-cascade failures (in case a specific page genuinely is AJAX-only).
-- **repair selector** — DeepSeek (`deepseek-v4-pro`) suggests a replacement
-  CSS selector when tier-2 extraction comes back empty even after headless
-  escalation; the repair is cached in `RunMemory.repaired_selectors` for the
-  rest of the run so later product pages benefit without another LLM call.
-- **dead-letter** — recovery exhausted → a `FailureRecord` is written to
-  SQLite (`failures` table) and `RunMemory.dead_letters`. Nothing is silently
-  dropped. Verified against a live failure case (unresolvable host) during
-  the build — see `BUILD_REPORT.md`.
+| Path | Behavior | Fired in a real crawl? |
+|---|---|---|
+| **retry** (w/ backoff) | Same render mode; anti-bot errors sleep 8s; bounded by `MAX_ATTEMPTS` (2 recovery passes) | **Yes** (fetch exhaustion, `attempts=3`) |
+| **escalate-render** | static → headless | **Yes** |
+| **repair-selector** | DeepSeek (`deepseek-v4-pro`) proposes a CSS selector; cached on `RunMemory` for the run | **No** — coded, never entered |
+| **dead-letter** | `FailureRecord` → SQLite + `RunMemory.dead_letters` | **Yes** |
 
-## 9. Scaling to full-site crawling in production
+Dead-letter **never silently drops**. The Safco 225-row sample runs had **0** recover visits; other experiments produced failure rows — do not mix those.
 
-1. **Frontier & state**: swap `RunMemory`'s in-process deque/sets for
-   Redis (frontier + visited set) and Postgres (canonical map, product store,
-   dead-letters). LangGraph's checkpointer can persist graph state directly to
-   Postgres for true resumability across process restarts, not just within
-   one `ainvoke`.
-2. **Concurrency**: the current graph processes one job per "tick" of the
-   `NEXT_JOB` loop — fine for a ~200-page POC, not for a full site. Move to
-   N worker processes each running their own graph instance, pulling from a
-   shared Redis frontier, with the per-category cap and page budget enforced
-   centrally (a Postgres row with `SELECT ... FOR UPDATE`, or a Redis atomic
-   counter) instead of in a single process's memory.
-3. **Escalation tiers**: today it's static → headless → dead-letter. Add
-   stealth headless (already documented in the planning doc), then a proxy
-   pool (Bright Data / Oxylabs — residential rotation) for IP-ban resilience,
-   then a managed unlocker (Firecrawl) as a last resort before giving up on a
-   URL. Each tier only activates if the previous one's fetch looks blocked
-   (status code, empty-body heuristic, or a CAPTCHA-page fingerprint).
-4. **Scheduler**: cron or Temporal-driven re-crawls per category, using
-   `source_hash` to skip unchanged products and only re-validate/re-store
-   what changed — turns a full re-crawl into a cheap diff pass most days.
-5. **Rate limiting**: today it's a flat `request_delay_seconds` per run.
-   Production should be per-host token-bucket rate limiting shared across
-   worker processes (Redis-backed), with backoff driven by observed 429/405
-   responses (the build hit a real Fastly rate-limit — see BUILD_REPORT.md
-   — and fixed it with proper headers, but a production crawler at 100x the
-   request volume needs adaptive throttling, not just a fixed delay).
-6. **Framework swap-in points already anticipated in the design**: Crawlee or
-   Scrapy for the crawl engine itself if the in-graph frontier loop becomes
-   the bottleneck; ScrapeGraphAI if/when this extends to suppliers whose sites
-   don't cooperate with structured data as well as Safco's does; Scrapling if
-   selector drift becomes frequent enough that the LLM repair loop is firing
-   often (it currently isn't, on this site).
+---
 
-## 10. Data-quality monitoring
+## 9. How to scale to full-site crawling in production
 
-- **`extraction_method` field-fill rate per run** is the primary signal —
-  tracked live in the UI (`/status/{run_id}`) and logged in `LoopTrace`. A
-  rising share of `selector`/`llm` (vs `structured`) rows over time means the
-  site changed and selectors/JSON-LD assumptions need review.
-- **`source_hash` diffing** across re-crawls flags products whose data
-  actually changed vs. re-scraped identically — useful both for "what changed
-  today" reporting and for catching extraction *instability* (a hash that
-  flips every re-crawl on an unchanged product is a red flag, not a real
-  change).
-- **Dead-letter rate per category** (`failures` table) — a spike means either
-  the category's URL structure changed or the site started blocking the
-  crawler; both are actionable alerts, not silent data loss (the whole point
-  of never dropping a failure silently).
-- **Null-rate per field**, sampled per run — e.g. if `price` nulls jump from
-  ~0% to ~80% between runs, that's the gating behavior the recon doc expected
-  showing up for real, and should page someone rather than ship a dataset
-  that looks fine but silently lost its most business-relevant field.
-- **LLM call count vs. page count** — cost/reliability proxy. A healthy run on
-  this site should show near-zero LLM calls (structured data covers it); a
-  sustained increase means either the cascade's tier-1/2 broke or the site
-  changed layout.
-- Production upgrade path: push these as metrics to whatever the team already
-  uses (Prometheus/Grafana, or simpler — a daily summary row per category in
-  Postgres, alerted on via a scheduled query), rather than building a bespoke
-  dashboard for the POC.
+Mapped from the planning/spec future stack to **triggers**, not a shopping list:
 
-## 10. Multi-site generalization — Net32 (`NET32_GENERALIZATION_KICKOFF.md`, Step 1)
+- **Distributed frontier** (Crawlee / Scrapy / Redis, Postgres for the product store) when the in-process deque + SQLite outgrow one process.
+- **Firecrawl / proxy pool** when static+headless is not enough anti-bot (Net32 already shows Cloudflare sensitivity; this POC only slows the rate).
+- **Temporal** (or equivalent) when you need durable resume across process death — LangGraph checkpoints are not wired; `RunMemory` dies with the process.
+- **ScrapeGraphAI** (or similar) when adding suppliers that lack Safco-quality JSON-LD and need multi-site extraction beyond two adapters.
+- **Auth session** when prices are actually gated (`price_status=gated` exists; not exercised against a gated account).
+- **Config-driven multi-site** stays the extension point: new `SiteAdapter` + registry entry. Classification is **not** fully config-driven today (heuristic still Magento-shaped).
 
-The agentic layer above was unproven on a second site until this pass: Safco's
-sample run made 0 LLM calls because structured data covered every row, so
-"it generalizes" was a claim, not a demonstration. Net32 (Next.js, no product
-JSON-LD reliable at build time, Cloudflare-protected) was added as a second
-`SiteAdapter` (`config/net32.py`) to force the LLM-bearing steps to actually
-fire. Full write-up — the prove-first gate that stopped mid-build when its own
-assumption broke, seven real bugs found by running the code against the live
-site, and the final numbers for both sites — is in `BUILD_REPORT.md` §9-14.
-Highlights:
+---
 
-- **Site differences live entirely in `SiteAdapter` + a host→adapter registry**
-  (`config/registry.py`). `classify_heuristic` — the Safco/Magento-specific
-  function this project's own audit flagged as "not config" — is untouched;
-  it already returns "ambiguous" for any URL that doesn't match Safco's
-  patterns, which is what routes Net32 through LLM classify. No Net32
-  heuristics were added; `grep -ri net32 app/**/*.py` shows zero hits outside
-  comments/docstrings and the two config files.
-- **`extraction_method` on Net32 rows reads `llm`, not `structured`** — but
-  honestly: Net32's product-page JSON-LD actually covers the core fields
-  (name/sku/brand/price/availability) about as well as Safco's does. What it
-  never carries is the `specifications` key-value table (Manufacturer Code,
-  Packaging, Sterility, Color, Material) or the multi-vendor offer table —
-  that's what genuinely requires the LLM, and `extraction_method` reports the
-  *highest tier that contributed* to the row, matching the kickoff's own
-  design language.
-- **Headless rendering (with `crawl4ai`'s `enable_stealth=True`) is required
-  for every single Net32 fetch**, not an edge-case escalation. Static fetch
-  returns a Cloudflare JS-challenge 403 on every URL, every time — this is
-  the opposite of what both the original recon and the kickoff doc predicted
-  ("render-split unexercised on both sites"). Corrected in `BUILD_REPORT.md`
-  rather than left as a stale prediction.
-- **New limitations, specific to Net32** (in addition to §7 above, which is
-  Safco-scoped): vendor-offer fan-out beyond the lowest price is not modeled;
-  quantity-tier pricing is not captured; `alternatives` stays empty (Step-2
-  seam, not built — see kickoff §6 and `BUILD_REPORT.md` §13); pagination
-  beyond page 1 was not exercised in the committed sample (12-product cap hit
-  on page 1); only the `gloves` category was crawled, not full-site coverage.
-- Sample data: `data/samples/net32/net32_gloves.{csv,json}` (12 products, cap
-  from `config/net32.py`).
+## 10. How to monitor data quality
+
+- **Field-fill rate split by `extraction_method`.** A shift from `structured` toward `selector`/`llm` is a site-change alarm. Treat Net32’s `llm` tag as “JSON-LD + specs overlay,” not cascade fallback.
+- **LLM-call count and token budget** (JSONL `usage.total_tokens`; UI `/status` exposes call counts). Healthy Safco cap-25: **0** calls. Net32 12-product proof: **25** successful calls.
+- **Dead-letter queue depth** (`failures` table / `memory.dead_letters`). Spikes mean block or URL-shape change, not silent loss.
+- **`source_hash` on re-crawl** — designed for change detection; identical re-upsert is implied by the PK. A genuine before/after hash-diff on mutated content was **not** artifacted in this POC.
+- **LoopTrace is the observability spine** (SQLite `traces`). It is not a full replay: no HTML blobs, and the `extraction_method` column is weak.
+- **LangSmith** is the production tracing upgrade (not in this POC).
