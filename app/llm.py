@@ -24,31 +24,42 @@ class LLMCallCounter:
 
     `total` / `by_purpose` count successful responses only (keeps historical
     sample numbers comparable). Failed attempts increment `failed` only —
-    they are never folded into `total`.
+    they are never folded into `total`. Per-run buckets keep concurrent /
+    sequential runs in one process from contaminating each other.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self.total = 0
-        self.failed = 0
+        self.total = 0            # successful calls, global (back-compat)
+        self.failed = 0           # failed attempts, global
         self.by_purpose: dict[str, int] = {}
+        self._by_run: dict[str, dict] = {}
 
     def record(self, purpose: str, run_id: str = "", ok: bool = True) -> None:
-        # run_id is accepted so the choke point can pass it; per-run buckets
-        # land in Task 2. Until then it is unused.
         with self._lock:
+            b = self._by_run.setdefault(run_id, {"total": 0, "failed": 0, "by_purpose": {}})
             if ok:
                 self.total += 1
                 self.by_purpose[purpose] = self.by_purpose.get(purpose, 0) + 1
+                b["total"] += 1
+                b["by_purpose"][purpose] = b["by_purpose"].get(purpose, 0) + 1
             else:
                 self.failed += 1
+                b["failed"] += 1
 
-    def snapshot(self) -> dict:
+    def snapshot(self, run_id: str | None = None) -> dict:
         with self._lock:
+            if run_id is None:
+                return {
+                    "total": self.total,
+                    "failed": self.failed,
+                    "by_purpose": dict(self.by_purpose),
+                }
+            b = self._by_run.get(run_id, {"total": 0, "failed": 0, "by_purpose": {}})
             return {
-                "total": self.total,
-                "failed": self.failed,
-                "by_purpose": dict(self.by_purpose),
+                "total": b["total"],
+                "failed": b["failed"],
+                "by_purpose": dict(b["by_purpose"]),
             }
 
 

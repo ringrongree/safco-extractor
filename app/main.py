@@ -6,7 +6,9 @@ import asyncio
 import copy
 import os
 import sys
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -42,9 +44,11 @@ from starlette.requests import Request
 
 from app.graph import run_crawl
 from app.llm import call_counter
+from app.logging_setup import compute_summary, start_run_logging, stop_run_logging
 from app.memory import RunMemory
-from app.schemas import Job, JobType, RenderMode, SiteAdapter
-from app.storage import export_csv, export_json, get_connection
+from app.schemas import Job, JobType
+from app.storage import export_csv, export_json, get_connection, upsert_run
+from config.registry import resolve_adapter_for_urls
 from config.safco import SAFCO_ADAPTER
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -80,19 +84,27 @@ async def index(request: Request):
 async def start_run(req: RunRequest):
     run_id = uuid.uuid4().hex[:12]
 
-    adapter = copy.deepcopy(SAFCO_ADAPTER)
+    try:
+        base_adapter = resolve_adapter_for_urls(req.categories)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    adapter = copy.deepcopy(base_adapter)
     adapter.categories = req.categories
     adapter.max_products_per_category = req.max_products_per_category
     adapter.rate_limit = req.request_delay_seconds
 
     memory = RunMemory(adapter=adapter, run_id=run_id)
     for url in req.categories:
-        memory.push(Job(url=url, type=JobType.CATEGORY, render_mode=RenderMode.STATIC))
+        memory.push(Job(url=url, type=JobType.CATEGORY, render_mode=adapter.start_render_mode))
     memory.status = "running"
     RUNS[run_id] = memory
 
     async def _runner():
         conn = get_connection()
+        started_at = time.time()
+        started_iso = _now_iso()
+        start_run_logging(run_id)
         try:
             await run_crawl(memory, adapter, conn)
             memory.status = "done"
@@ -100,10 +112,22 @@ async def start_run(req: RunRequest):
             memory.status = "error"
             memory.error_message = str(exc)
         finally:
+            summary = compute_summary(run_id)
+            upsert_run(
+                conn, run_id, adapter.site_id, memory.status,
+                memory.pages_fetched, memory.products_found,
+                summary["llm_calls_total"], len(memory.dead_letters),
+                time.time() - started_at, started_iso, _now_iso(),
+            )
+            stop_run_logging(run_id)
             conn.close()
 
     TASKS[run_id] = asyncio.create_task(_runner())
     return {"run_id": run_id}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _snapshot(memory: RunMemory) -> dict:
@@ -118,7 +142,7 @@ async def status(run_id: str):
     if memory is None:
         return JSONResponse({"error": "unknown run_id"}, status_code=404)
     snap = _snapshot(memory)
-    snap["llm_calls"] = call_counter.snapshot()
+    snap["llm_calls"] = call_counter.snapshot(run_id)
     return snap
 
 
@@ -139,8 +163,9 @@ async def export_csv_route(run_id: str):
     memory = RUNS.get(run_id)
     if memory is None:
         return JSONResponse({"error": "unknown run_id"}, status_code=404)
+    site_id = memory.adapter.site_id or "export"
     path = export_csv(memory.products, EXPORT_DIR / f"{run_id}.csv")
-    return FileResponse(path, filename=f"safco_{run_id}.csv", media_type="text/csv")
+    return FileResponse(path, filename=f"{site_id}_{run_id}.csv", media_type="text/csv")
 
 
 @app.get("/export/{run_id}.json")
@@ -148,5 +173,6 @@ async def export_json_route(run_id: str):
     memory = RUNS.get(run_id)
     if memory is None:
         return JSONResponse({"error": "unknown run_id"}, status_code=404)
+    site_id = memory.adapter.site_id or "export"
     path = export_json(memory.products, EXPORT_DIR / f"{run_id}.json")
-    return FileResponse(path, filename=f"safco_{run_id}.json", media_type="application/json")
+    return FileResponse(path, filename=f"{site_id}_{run_id}.json", media_type="application/json")
