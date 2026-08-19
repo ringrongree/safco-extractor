@@ -89,6 +89,17 @@ diverging from the spec.
   checked had more items than fit in one `ItemList` block. It has not been
   independently unit-tested with a synthetic multi-page fixture either. Flag
   this for the reviewer: it's plausible-looking code, not verified code.
+- **Unified extractor (`extract_fallback_with_llm` / `extract_with_llm`) is
+  verified-in-isolation-only** — same category as cascade tiers 2/3. Traced
+  in `app/nodes/extract.py` this session: a live crawl never reaches it on
+  either site. Safco product pages win at tier-1 JSON-LD (`structured`) and
+  return before selectors/LLM. Net32 product pages also win at tier-1 core
+  fields, then call `extract_specifications_with_llm` (additive, a different
+  function) when `fill_missing_specifications_via_llm` is set. Tier 3 only
+  runs after two failed attempts at tiers 1+2 (`job.attempts < 2` returns
+  `stage_failed` first). Not rewired to force it to fire (Option 1 / inversion
+  forbidden). Phase 0 script + `tests/test_oracle.py` remain the isolation
+  evidence.
 - **LLM extraction fallback's page truncation** (`app/tools/llm_extract.py`,
   `_MAX_HTML_CHARS = 12000`) means on a genuinely large/irregular page, the
   LLM only sees a truncated, script/style-stripped slice. In the one live
@@ -584,7 +595,7 @@ Phase 1 draft (`extract_fallback_with_llm` / alias `extract_with_llm`) **was** c
 - `app/tools/llm_extract.py`: unified extractor — full field set including `specifications` + `image_urls`, 25k `_truncate`, `[]` on API/parse failure, alias `extract_with_llm`. Purpose tag `extract`.
 - `app/tools/oracle.py`: pure `compare(llm_rows, oracle_rows)`; `{"oracle": "absent"}` when JSON-LD misses; tunable consts as specified.
 - `tests/test_oracle.py` (unittest).
-- **Not built (Option 1):** extract_node / classify_node rewire, summary oracle tables, Safco `start_render_mode=headless`, cap-3 / cap-25 LLM-primary crawl, CSV/JSON schema changes (none). The unified extractor and `compare()` stay in-tree unused by the graph.
+- **Not built (Option 1):** extract_node / classify_node rewire, summary oracle tables, Safco `start_render_mode=headless`, cap-3 / cap-25 LLM-primary crawl, CSV/JSON schema changes (none). The unified extractor and `compare()` stay in-tree unused by the graph — **not reachable on a live Safco or Net32 crawl** (tier-1 structured wins; Net32 specs use `extract_specifications_with_llm`, not the unified extractor). See §3.
 
 ### Match-rate tables (Safco full run)
 
@@ -722,4 +733,21 @@ missing {'total': 0, 'failed': 0, 'by_purpose': {}}
 
 Concurrent-run isolation is the same `_by_run` keying; not separately load-tested
 with two overlapping `POST /run` in this session (unexercised as a live overlap).
+
+### Task 4 — reachability + disclosure (analysis only)
+
+**4a Unified extractor.** Live-crawl path in `extract_node`: tier-1
+`structured_extract_product` → return; else tier-2 selectors; else if
+`job.attempts < 2` → `stage_failed` / recover; else
+`extract_fallback_with_llm`. Safco happy path: tier-1 hit, 0 LLM.
+Net32 happy path: tier-1 hit + `extract_specifications_with_llm` when specs
+are empty. The unified extractor is **not** on either live happy path; isolation
+only (Phase 0 + unit test). Not rewired.
+
+**4b `LoopTrace.html_blob_path`.** The `traces` table and `LoopTrace` schema
+have the column. Every `LoopTrace(...)` in `enqueue` / `store` / `extract` /
+`classify` / `validate` leaves it default `None`. No crawl-path writer stores
+raw HTML to disk or a blob column (`BUILD_SPEC.md` §7A). `scripts/phase0_*.py`
+write diagnostic cached HTML only. **§7A is partial: trace rows persist; the
+raw HTML blob is not written.** Not built in this pack.
 
